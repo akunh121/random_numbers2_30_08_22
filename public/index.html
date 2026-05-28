@@ -79,6 +79,64 @@
 
     .subtitle { color: var(--text-muted); font-size: 16px; margin: 0; }
 
+    .user-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 6px 6px 6px 14px; border-radius: 999px;
+      margin-top: 12px; font-size: 13px;
+      backdrop-filter: blur(10px);
+    }
+
+    .user-badge .user-email { color: var(--text); font-weight: 500; }
+
+    .user-badge .sign-out {
+      font-family: inherit; font-size: 12px; font-weight: 500;
+      background: rgba(239, 68, 68, 0.15); color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 5px 12px; border-radius: 999px;
+      cursor: pointer; transition: var(--transition);
+    }
+
+    .user-badge .sign-out:hover {
+      background: rgba(239, 68, 68, 0.25); color: #fecaca;
+    }
+
+    .auth-gate {
+      text-align: center; padding: 40px 24px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.10));
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .auth-gate .lock-icon {
+      font-size: 56px; margin-bottom: 16px; display: block;
+    }
+
+    .auth-gate h2 {
+      margin: 0 0 8px; font-size: 22px; font-weight: 700;
+    }
+
+    .auth-gate p {
+      margin: 0 0 24px; color: var(--text-muted); font-size: 15px;
+    }
+
+    .google-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 10px; font-family: inherit; font-size: 16px; font-weight: 600;
+      padding: 14px 28px; border-radius: var(--radius-sm); cursor: pointer;
+      background: #fff; color: #1f2937; border: 1px solid transparent;
+      transition: var(--transition);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+
+    .google-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+
+    .google-btn:disabled { opacity: 0.6; cursor: wait; }
+
+    .google-btn svg { width: 20px; height: 20px; }
+
     .card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 24px;
@@ -397,8 +455,29 @@
       </div>
       <h1>6 מספרים + חזק</h1>
       <p class="subtitle">הגרלה אקראית — נמשכת מ-Firebase עם גיבוי מקומי</p>
+      <div class="user-badge" id="userBadge" style="display: none;">
+        <span class="user-email" id="userEmail"></span>
+        <button class="sign-out" id="signOutBtn" type="button">התנתק</button>
+      </div>
     </header>
 
+    <section class="card auth-gate" id="authGate" style="display: none;">
+      <span class="lock-icon">🔒</span>
+      <h2>אתר פרטי</h2>
+      <p id="authGateMsg">היכנס עם חשבון Google כדי להמשיך</p>
+      <button class="google-btn" id="signInBtn" type="button">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        <span>התחבר עם Google</span>
+      </button>
+      <div class="error" id="authError" style="margin-top: 20px;" role="alert"></div>
+    </section>
+
+    <div id="appShell" style="display: none;">
     <section class="card">
       <div class="error" id="error" role="alert"></div>
 
@@ -479,51 +558,137 @@
     </section>
 
     <footer>נבנה בעברית · אקראיות קריפטוגרפית · מקור Firebase</footer>
+    </div>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script>
-    (function () {
-      'use strict';
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import {
+      getAuth, GoogleAuthProvider, signInWithPopup, signOut,
+      onAuthStateChanged, setPersistence, browserLocalPersistence
+    } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+    import {
+      getFirestore, doc, getDoc
+    } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
-      const FB = {
-        projectId: 'randomnumbers-ca9f3',
-        apiKey: 'AIzaSyCCYei2vDcQOllbKOmW_sjmRPzvfzptHns',
-        collection: 'loto3',
-        maxIndex: 16273489,
-        maxRetries: 3,
-      };
+    const firebaseConfig = {
+      apiKey: 'AIzaSyCCYei2vDcQOllbKOmW_sjmRPzvfzptHns',
+      authDomain: 'randomnumbers-ca9f3.firebaseapp.com',
+      projectId: 'randomnumbers-ca9f3',
+    };
 
-      const STORAGE_KEY = 'lotto_history_v2';
-      const MAX_HISTORY = 30;
-      const DEFAULTS = { tickets: 1, mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
+    const ALLOWED_EMAILS = new Set(['akunh1000@gmail.com']);
 
-      const els = {
-        tickets: document.getElementById('tickets'),
-        mainCount: document.getElementById('mainCount'),
-        mainMin: document.getElementById('mainMin'),
-        mainMax: document.getElementById('mainMax'),
-        strongMin: document.getElementById('strongMin'),
-        strongMax: document.getElementById('strongMax'),
-        useFirebase: document.getElementById('useFirebase'),
-        generate: document.getElementById('generateBtn'),
-        generateLabel: document.getElementById('generateLabel'),
-        reset: document.getElementById('resetBtn'),
-        ticketsOut: document.getElementById('tickets-out'),
-        emptyTickets: document.getElementById('emptyTickets'),
-        error: document.getElementById('error'),
-        history: document.getElementById('history'),
-        emptyHistory: document.getElementById('emptyHistory'),
-        clearHistory: document.getElementById('clearHistoryBtn'),
-        toast: document.getElementById('toast'),
-        settings: document.getElementById('settings'),
-        settingsToggle: document.getElementById('settingsToggle'),
-        settingsToggleLabel: document.getElementById('settingsToggleLabel'),
-      };
+    const COLLECTION = 'loto3';
+    const MAX_INDEX = 16273489;
+    const MAX_RETRIES = 3;
 
-      let history = loadHistory();
-      renderHistory();
+    const STORAGE_KEY = 'lotto_history_v2';
+    const MAX_HISTORY = 30;
+    const DEFAULTS = { tickets: 1, mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
+
+    const fbApp = initializeApp(firebaseConfig);
+    const auth = getAuth(fbApp);
+    const db = getFirestore(fbApp);
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+    const els = {
+      authGate: document.getElementById('authGate'),
+      authGateMsg: document.getElementById('authGateMsg'),
+      authError: document.getElementById('authError'),
+      signInBtn: document.getElementById('signInBtn'),
+      appShell: document.getElementById('appShell'),
+      userBadge: document.getElementById('userBadge'),
+      userEmail: document.getElementById('userEmail'),
+      signOutBtn: document.getElementById('signOutBtn'),
+      tickets: document.getElementById('tickets'),
+      mainCount: document.getElementById('mainCount'),
+      mainMin: document.getElementById('mainMin'),
+      mainMax: document.getElementById('mainMax'),
+      strongMin: document.getElementById('strongMin'),
+      strongMax: document.getElementById('strongMax'),
+      useFirebase: document.getElementById('useFirebase'),
+      generate: document.getElementById('generateBtn'),
+      generateLabel: document.getElementById('generateLabel'),
+      reset: document.getElementById('resetBtn'),
+      ticketsOut: document.getElementById('tickets-out'),
+      emptyTickets: document.getElementById('emptyTickets'),
+      error: document.getElementById('error'),
+      history: document.getElementById('history'),
+      emptyHistory: document.getElementById('emptyHistory'),
+      clearHistory: document.getElementById('clearHistoryBtn'),
+      toast: document.getElementById('toast'),
+      settings: document.getElementById('settings'),
+      settingsToggle: document.getElementById('settingsToggle'),
+      settingsToggleLabel: document.getElementById('settingsToggleLabel'),
+    };
+
+    let history = loadHistory();
+    renderHistory();
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        showAuthGate();
+      } else if (!ALLOWED_EMAILS.has((user.email || '').toLowerCase())) {
+        showAuthGate({ email: user.email, unauthorized: true });
+      } else {
+        showApp(user);
+      }
+    });
+
+    function showAuthGate(info) {
+      els.authGate.style.display = 'block';
+      els.appShell.style.display = 'none';
+      els.userBadge.style.display = 'none';
+      if (info && info.unauthorized) {
+        els.authGateMsg.textContent = `החשבון ${info.email} אינו מורשה. נא להתחבר עם החשבון הנכון.`;
+        els.signInBtn.querySelector('span').textContent = 'התחבר עם חשבון אחר';
+        els.authError.textContent = '';
+        els.authError.classList.remove('show');
+      } else {
+        els.authGateMsg.textContent = 'היכנס עם חשבון Google כדי להמשיך';
+        els.signInBtn.querySelector('span').textContent = 'התחבר עם Google';
+        els.authError.textContent = '';
+        els.authError.classList.remove('show');
+      }
+    }
+
+    function showApp(user) {
+      els.authGate.style.display = 'none';
+      els.appShell.style.display = 'block';
+      els.userBadge.style.display = 'inline-flex';
+      els.userEmail.textContent = user.email;
+    }
+
+    async function doSignIn() {
+      els.authError.classList.remove('show');
+      els.signInBtn.disabled = true;
+      try {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        await signInWithPopup(auth, provider);
+      } catch (e) {
+        const code = e && e.code ? e.code : '';
+        let msg = 'שגיאת התחברות';
+        if (code === 'auth/popup-blocked') msg = 'הדפדפן חסם את חלון ההתחברות. אפשר חלונות קופצים ונסה שוב.';
+        else if (code === 'auth/popup-closed-by-user') msg = 'חלון ההתחברות נסגר.';
+        else if (code === 'auth/unauthorized-domain') msg = 'הדומיין לא מורשה ב-Firebase. הוסף את ' + location.hostname + ' ב-Authentication → Settings → Authorized domains.';
+        else if (e && e.message) msg += ': ' + e.message;
+        els.authError.textContent = msg;
+        els.authError.classList.add('show');
+      } finally {
+        els.signInBtn.disabled = false;
+      }
+    }
+
+    async function doSignOut() {
+      try { await signOut(auth); } catch {}
+    }
+
+    els.signInBtn.addEventListener('click', doSignIn);
+    els.signOutBtn.addEventListener('click', doSignOut);
 
       function loadHistory() {
         try {
@@ -590,17 +755,15 @@
         return { main, strong, source: 'local', time: Date.now() };
       }
 
-      function parseFirestoreFields(fields) {
+      function parseFields(data) {
         const nums = [];
-        for (const k of Object.keys(fields)) {
+        for (const k of Object.keys(data || {})) {
           const m = k.match(/^n(\d+)$/);
           if (!m) continue;
-          const v = fields[k];
-          if (!v || typeof v !== 'object') continue;
+          const v = data[k];
           let n;
-          if ('integerValue' in v) n = parseInt(v.integerValue, 10);
-          else if ('doubleValue' in v) n = Math.round(v.doubleValue);
-          else if ('stringValue' in v) n = parseInt(v.stringValue, 10);
+          if (typeof v === 'number') n = v;
+          else if (typeof v === 'string') n = parseInt(v, 10);
           else continue;
           if (!Number.isFinite(n)) continue;
           nums.push({ idx: parseInt(m[1], 10), n });
@@ -610,17 +773,12 @@
       }
 
       async function fetchFromFirestore(cfg) {
-        for (let attempt = 0; attempt < FB.maxRetries; attempt++) {
-          const idx = randomInt(1, FB.maxIndex);
-          const url = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents/${FB.collection}/${idx}?key=${FB.apiKey}`;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          const idx = randomInt(1, MAX_INDEX);
           try {
-            const res = await fetch(url, { cache: 'no-store' });
-            if (res.status === 404) continue;
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-            if (!data.fields) continue;
-
-            const parsed = parseFirestoreFields(data.fields);
+            const snap = await getDoc(doc(db, COLLECTION, String(idx)));
+            if (!snap.exists()) continue;
+            const parsed = parseFields(snap.data());
             if (parsed.length < cfg.mainCount + 1) continue;
 
             const values = parsed.map(p => p.n);
@@ -629,7 +787,7 @@
 
             return { main, strong, source: 'firebase', docId: idx, time: Date.now() };
           } catch (e) {
-            if (attempt === FB.maxRetries - 1) throw e;
+            if (attempt === MAX_RETRIES - 1) throw e;
           }
         }
         throw new Error('no_document');
@@ -897,7 +1055,6 @@
           navigator.serviceWorker.register('./sw.js').catch(() => {});
         });
       }
-    })();
   </script>
 </body>
 </html>
