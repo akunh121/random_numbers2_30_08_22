@@ -142,8 +142,11 @@
     }
 
     .ticket-balls {
-      display: flex; flex-wrap: wrap; align-items: center;
-      justify-content: center; gap: 8px;
+      display: grid;
+      grid-template-columns: repeat(3, auto);
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
     }
 
     .ticket-strong-row {
