@@ -1,89 +1,797 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="מחולל מספרים אקראיים מתקדם - בחירת טווח, כמות מספרים, ייחודיות ומיון. עיצוב מודרני ונגיש בעברית.">
+  <title>מחולל מספרים אקראיים</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/9.12.0/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/9.12.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/9.12.0/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+    :root {
+      --bg-1: #0f172a;
+      --bg-2: #1e293b;
+      --surface: rgba(255, 255, 255, 0.06);
+      --surface-strong: rgba(255, 255, 255, 0.1);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-2: #ec4899;
+      --accent-3: #06b6d4;
+      --success: #10b981;
+      --danger: #ef4444;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
 
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
-    </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+    }
 
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+    body {
+      font-family: 'Heebo', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+      color: var(--text);
+      background: radial-gradient(1200px 800px at 90% -10%, rgba(99, 102, 241, 0.25), transparent 60%),
+                  radial-gradient(900px 600px at -10% 110%, rgba(236, 72, 153, 0.22), transparent 60%),
+                  linear-gradient(180deg, var(--bg-1), var(--bg-2));
+      background-attachment: fixed;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
 
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: 999px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(10px);
+    }
+
+    .logo .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 12px var(--success);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    h1 {
+      font-size: clamp(28px, 5vw, 42px);
+      font-weight: 800;
+      margin: 0 0 8px;
+      background: linear-gradient(135deg, #fff 0%, #c7d2fe 50%, #f9a8d4 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 16px;
+      margin: 0;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      backdrop-filter: blur(20px);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+    }
+
+    .result-card {
+      text-align: center;
+      padding: 32px 24px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.15));
+      border-color: rgba(99, 102, 241, 0.3);
+      min-height: 180px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .result-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+
+    .result-numbers {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .result-numbers:empty::before {
+      content: '—';
+      font-size: 48px;
+      color: var(--text-muted);
+      opacity: 0.4;
+    }
+
+    .number-chip {
+      font-size: clamp(20px, 4vw, 28px);
+      font-weight: 700;
+      padding: 10px 18px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: var(--radius-sm);
+      min-width: 60px;
+      animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      font-variant-numeric: tabular-nums;
+    }
+
+    @keyframes pop {
+      0% { transform: scale(0.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .copy-btn {
+      font-size: 13px;
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: var(--transition);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .copy-btn:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    .copy-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    input[type="number"] {
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      outline: none;
+      transition: var(--transition);
+      width: 100%;
+      direction: ltr;
+      text-align: right;
+    }
+
+    input[type="number"]:focus {
+      border-color: var(--accent);
+      background: rgba(0, 0, 0, 0.35);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    }
+
+    input[type="number"]:invalid {
+      border-color: var(--danger);
+    }
+
+    .toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 14px;
+      transition: var(--transition);
+      user-select: none;
+    }
+
+    .toggle:hover {
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    .toggle input {
+      appearance: none;
+      width: 36px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      transition: var(--transition);
+      flex-shrink: 0;
+    }
+
+    .toggle input::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: var(--transition);
+    }
+
+    .toggle input:checked {
+      background: var(--accent);
+    }
+
+    .toggle input:checked::after {
+      right: 18px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button.primary, button.secondary {
+      flex: 1;
+      min-width: 140px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 20px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: var(--transition);
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: white;
+      box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35);
+    }
+
+    button.primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 36px rgba(99, 102, 241, 0.45);
+    }
+
+    button.primary:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--surface-strong);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    button.secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fecaca;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error.show { display: block; }
+
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .history-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .clear-btn {
+      font-size: 13px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: var(--transition);
+    }
+
+    .clear-btn:hover {
+      color: var(--danger);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .history-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .history-list::-webkit-scrollbar { width: 6px; }
+    .history-list::-webkit-scrollbar-track { background: transparent; }
+    .history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+    }
+
+    .history-item .values {
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+      text-align: right;
+      flex: 1;
+      word-break: break-all;
+    }
+
+    .history-item .time {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-right: 12px;
+      white-space: nowrap;
+    }
+
+    .empty-history {
+      color: var(--text-muted);
+      font-size: 14px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 32px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--success);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 10px 30px rgba(16, 185, 129, 0.4);
+      opacity: 0;
+      transition: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @media (max-width: 480px) {
+      .container { padding: 20px 14px 40px; }
+      .card { padding: 20px 16px; }
+      .actions { flex-direction: column; }
+      button.primary, button.secondary { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div class="logo">
+        <span class="dot"></span>
+        <span>מחולל מספרים אקראיים</span>
+      </div>
+      <h1>בחר טווח. קבל מספר.</h1>
+      <p class="subtitle">מחולל מספרים אקראיים מהיר, פשוט ומדויק</p>
+    </header>
+
+    <section class="card result-card" aria-live="polite">
+      <div class="result-label">תוצאה</div>
+      <div class="result-numbers" id="results"></div>
+      <button class="copy-btn" id="copyBtn" disabled aria-label="העתק תוצאה">
+        <span>העתק</span>
+      </button>
+    </section>
+
+    <section class="card">
+      <div class="form-grid">
+        <div class="field">
+          <label for="min">מינימום</label>
+          <input type="number" id="min" value="1" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="max">מקסימום</label>
+          <input type="number" id="max" value="100" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="count">כמות מספרים</label>
+          <input type="number" id="count" value="1" min="1" max="1000" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="toggles">
+        <label class="toggle">
+          <input type="checkbox" id="unique">
+          <span>מספרים ייחודיים</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="sort">
+          <span>מיין תוצאות</span>
+        </label>
+      </div>
+
+      <div class="error" id="error" role="alert"></div>
+
+      <div class="actions">
+        <button class="primary" id="generateBtn" type="button">
+          <span>הגרל</span>
+        </button>
+        <button class="secondary" id="resetBtn" type="button">
+          <span>איפוס</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="history-header">
+        <h2>היסטוריה</h2>
+        <button class="clear-btn" id="clearHistoryBtn" type="button">נקה</button>
+      </div>
+      <ul class="history-list" id="history"></ul>
+      <div class="empty-history" id="emptyHistory">עדיין לא הוגרלו מספרים</div>
+    </section>
+
+    <footer>
+      נבנה בעברית · מבוסס על <code>crypto.getRandomValues</code>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      const STORAGE_KEY = 'rng_history_v1';
+      const MAX_HISTORY = 20;
+      const MAX_COUNT = 1000;
+
+      const els = {
+        min: document.getElementById('min'),
+        max: document.getElementById('max'),
+        count: document.getElementById('count'),
+        unique: document.getElementById('unique'),
+        sort: document.getElementById('sort'),
+        generate: document.getElementById('generateBtn'),
+        reset: document.getElementById('resetBtn'),
+        results: document.getElementById('results'),
+        copy: document.getElementById('copyBtn'),
+        error: document.getElementById('error'),
+        history: document.getElementById('history'),
+        emptyHistory: document.getElementById('emptyHistory'),
+        clearHistory: document.getElementById('clearHistoryBtn'),
+        toast: document.getElementById('toast'),
+      };
+
+      let lastResult = [];
+      let history = loadHistory();
+
+      function loadHistory() {
         try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function saveHistory() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+        } catch {}
+      }
+
+      function showError(msg) {
+        els.error.textContent = msg;
+        els.error.classList.add('show');
+      }
+
+      function clearError() {
+        els.error.classList.remove('show');
+        els.error.textContent = '';
+      }
+
+      function showToast(msg) {
+        els.toast.textContent = msg;
+        els.toast.classList.add('show');
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => els.toast.classList.remove('show'), 1800);
+      }
+
+      function randomInt(min, max) {
+        const range = max - min + 1;
+        const maxUint = 0xFFFFFFFF;
+        const limit = Math.floor((maxUint + 1) / range) * range;
+        const buf = new Uint32Array(1);
+        let v;
+        do {
+          crypto.getRandomValues(buf);
+          v = buf[0];
+        } while (v >= limit);
+        return min + (v % range);
+      }
+
+      function generate() {
+        clearError();
+
+        const min = parseInt(els.min.value, 10);
+        const max = parseInt(els.max.value, 10);
+        const count = parseInt(els.count.value, 10);
+        const unique = els.unique.checked;
+        const sort = els.sort.checked;
+
+        if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(count)) {
+          showError('אנא הזן ערכים תקינים בכל השדות.');
+          return;
+        }
+        if (min > max) {
+          showError('הערך המינימלי לא יכול להיות גדול מהמקסימלי.');
+          return;
+        }
+        if (count < 1 || count > MAX_COUNT) {
+          showError(`כמות המספרים חייבת להיות בין 1 ל-${MAX_COUNT}.`);
+          return;
+        }
+
+        const range = max - min + 1;
+        if (unique && count > range) {
+          showError(`לא ניתן להגריל ${count} מספרים ייחודיים בטווח שכולל רק ${range} ערכים.`);
+          return;
+        }
+
+        let nums = [];
+        if (unique) {
+          if (count > range / 2) {
+            const pool = [];
+            for (let i = min; i <= max; i++) pool.push(i);
+            for (let i = pool.length - 1; i > 0; i--) {
+              const j = randomInt(0, i);
+              [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            nums = pool.slice(0, count);
+          } else {
+            const seen = new Set();
+            while (nums.length < count) {
+              const v = randomInt(min, max);
+              if (!seen.has(v)) {
+                seen.add(v);
+                nums.push(v);
+              }
+            }
+          }
+        } else {
+          for (let i = 0; i < count; i++) nums.push(randomInt(min, max));
+        }
+
+        if (sort) nums.sort((a, b) => a - b);
+
+        lastResult = nums;
+        renderResults(nums);
+        addToHistory({ values: nums, min, max, time: Date.now() });
+      }
+
+      function renderResults(nums) {
+        els.results.innerHTML = '';
+        nums.forEach(n => {
+          const chip = document.createElement('span');
+          chip.className = 'number-chip';
+          chip.textContent = n.toLocaleString('he-IL');
+          els.results.appendChild(chip);
+        });
+        els.copy.disabled = nums.length === 0;
+      }
+
+      function addToHistory(entry) {
+        history.unshift(entry);
+        if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+        saveHistory();
+        renderHistory();
+      }
+
+      function renderHistory() {
+        els.history.innerHTML = '';
+        if (history.length === 0) {
+          els.emptyHistory.style.display = 'block';
+          els.history.style.display = 'none';
+          return;
+        }
+        els.emptyHistory.style.display = 'none';
+        els.history.style.display = 'flex';
+
+        history.forEach(entry => {
+          const li = document.createElement('li');
+          li.className = 'history-item';
+
+          const values = document.createElement('span');
+          values.className = 'values';
+          values.textContent = entry.values.join(', ');
+
+          const time = document.createElement('span');
+          time.className = 'time';
+          time.textContent = formatTime(entry.time);
+
+          li.appendChild(values);
+          li.appendChild(time);
+          els.history.appendChild(li);
+        });
+      }
+
+      function formatTime(ts) {
+        const d = new Date(ts);
+        const diff = (Date.now() - ts) / 1000;
+        if (diff < 60) return 'עכשיו';
+        if (diff < 3600) return `לפני ${Math.floor(diff / 60)} ד׳`;
+        if (diff < 86400) return `לפני ${Math.floor(diff / 3600)} ש׳`;
+        return d.toLocaleDateString('he-IL');
+      }
+
+      function resetForm() {
+        els.min.value = 1;
+        els.max.value = 100;
+        els.count.value = 1;
+        els.unique.checked = false;
+        els.sort.checked = false;
+        clearError();
+        els.results.innerHTML = '';
+        els.copy.disabled = true;
+        lastResult = [];
+      }
+
+      async function copyResult() {
+        if (lastResult.length === 0) return;
+        const text = lastResult.join(', ');
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('הועתק ללוח');
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); showToast('הועתק ללוח'); } catch {}
+          document.body.removeChild(ta);
+        }
+      }
+
+      function clearHistory() {
+        history = [];
+        saveHistory();
+        renderHistory();
+      }
+
+      els.generate.addEventListener('click', generate);
+      els.reset.addEventListener('click', resetForm);
+      els.copy.addEventListener('click', copyResult);
+      els.clearHistory.addEventListener('click', clearHistory);
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.target.matches('button')) {
+          e.preventDefault();
+          generate();
         }
       });
-    </script>
-  </body>
+
+      renderHistory();
+    })();
+  </script>
+</body>
 </html>
