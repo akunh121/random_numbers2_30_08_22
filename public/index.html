@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <meta name="description" content="מחולל מספרים אקראיים מתקדם - בחירת טווח, כמות מספרים, ייחודיות ומיון. עיצוב מודרני ונגיש בעברית.">
-  <title>מחולל מספרים אקראיים</title>
+  <meta name="description" content="מחולל מספרי לוטו - 6 מספרים רגילים ומספר חזק. מבוסס על הגרלה אקראית מאובטחת.">
+  <title>מחולל לוטו - 6 מספרים + חזק</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +23,8 @@
       --text-muted: #94a3b8;
       --accent: #6366f1;
       --accent-2: #ec4899;
-      --accent-3: #06b6d4;
+      --strong: #f59e0b;
+      --strong-2: #ef4444;
       --success: #10b981;
       --danger: #ef4444;
       --radius: 16px;
@@ -32,11 +33,7 @@
       --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    html, body {
-      margin: 0;
-      padding: 0;
-      min-height: 100%;
-    }
+    html, body { margin: 0; padding: 0; min-height: 100%; }
 
     body {
       font-family: 'Heebo', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
@@ -50,16 +47,9 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 32px 20px 60px;
-    }
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
 
-    header {
-      text-align: center;
-      margin-bottom: 32px;
-    }
+    header { text-align: center; margin-bottom: 32px; }
 
     .logo {
       display: inline-flex;
@@ -101,11 +91,7 @@
       letter-spacing: -0.02em;
     }
 
-    .subtitle {
-      color: var(--text-muted);
-      font-size: 16px;
-      margin: 0;
-    }
+    .subtitle { color: var(--text-muted); font-size: 16px; margin: 0; }
 
     .card {
       background: var(--surface);
@@ -122,19 +108,17 @@
       padding: 32px 24px;
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.15));
       border-color: rgba(99, 102, 241, 0.3);
-      min-height: 180px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
     }
+
+    .result-section { margin-bottom: 24px; }
+    .result-section:last-child { margin-bottom: 0; }
 
     .result-label {
       font-size: 13px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       font-weight: 600;
     }
 
@@ -143,31 +127,48 @@
       flex-wrap: wrap;
       justify-content: center;
       gap: 10px;
-      margin-bottom: 16px;
+      min-height: 64px;
+      align-items: center;
     }
 
     .result-numbers:empty::before {
       content: '—';
-      font-size: 48px;
+      font-size: 40px;
       color: var(--text-muted);
       opacity: 0.4;
     }
 
-    .number-chip {
-      font-size: clamp(20px, 4vw, 28px);
+    .ball {
+      width: 56px;
+      height: 56px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
       font-weight: 700;
-      padding: 10px 18px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: var(--radius-sm);
-      min-width: 60px;
-      animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #ffffff, #e2e8f0 60%, #94a3b8);
+      color: #0f172a;
+      box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.2),
+                  0 6px 14px rgba(0, 0, 0, 0.4);
+      animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
       font-variant-numeric: tabular-nums;
     }
 
+    .ball.strong {
+      background: radial-gradient(circle at 30% 30%, #fde68a, var(--strong) 60%, var(--strong-2));
+      color: #fff;
+      box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.25),
+                  0 8px 22px rgba(245, 158, 11, 0.5);
+      width: 64px;
+      height: 64px;
+      font-size: 24px;
+    }
+
     @keyframes pop {
-      0% { transform: scale(0.5); opacity: 0; }
-      100% { transform: scale(1); opacity: 1; }
+      0% { transform: scale(0.3) rotate(-20deg); opacity: 0; }
+      60% { transform: scale(1.1) rotate(5deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0); opacity: 1; }
     }
 
     .copy-btn {
@@ -180,9 +181,7 @@
       cursor: pointer;
       font-family: inherit;
       transition: var(--transition);
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+      margin-top: 18px;
     }
 
     .copy-btn:hover:not(:disabled) {
@@ -190,29 +189,62 @@
       border-color: var(--text-muted);
     }
 
-    .copy-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
+    .copy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .settings-toggle {
+      width: 100%;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: var(--transition);
+    }
+
+    .settings-toggle:hover { color: var(--text); }
+
+    .settings-toggle .chevron {
+      transition: transform var(--transition);
+      display: inline-block;
+    }
+
+    .settings.open + .settings-toggle .chevron,
+    .settings-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
+    .settings {
+      display: none;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+
+    .settings.open { display: block; }
+
+    .settings-group { margin-bottom: 18px; }
+    .settings-group:last-child { margin-bottom: 0; }
+
+    .settings-group-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 10px;
     }
 
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
     }
 
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
+    .field { display: flex; flex-direction: column; gap: 6px; }
 
-    label {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
+    label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 
     input[type="number"] {
       font-family: inherit;
@@ -236,72 +268,7 @@
       box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
     }
 
-    input[type="number"]:invalid {
-      border-color: var(--danger);
-    }
-
-    .toggles {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-
-    .toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      font-size: 14px;
-      transition: var(--transition);
-      user-select: none;
-    }
-
-    .toggle:hover {
-      background: rgba(0, 0, 0, 0.3);
-    }
-
-    .toggle input {
-      appearance: none;
-      width: 36px;
-      height: 20px;
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 999px;
-      position: relative;
-      cursor: pointer;
-      transition: var(--transition);
-      flex-shrink: 0;
-    }
-
-    .toggle input::after {
-      content: '';
-      position: absolute;
-      top: 2px;
-      right: 2px;
-      width: 16px;
-      height: 16px;
-      background: #fff;
-      border-radius: 50%;
-      transition: var(--transition);
-    }
-
-    .toggle input:checked {
-      background: var(--accent);
-    }
-
-    .toggle input:checked::after {
-      right: 18px;
-    }
-
-    .actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
     button.primary, button.secondary {
       flex: 1;
@@ -314,10 +281,6 @@
       cursor: pointer;
       transition: var(--transition);
       border: 1px solid transparent;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
     }
 
     button.primary {
@@ -331,14 +294,8 @@
       box-shadow: 0 14px 36px rgba(99, 102, 241, 0.45);
     }
 
-    button.primary:active:not(:disabled) {
-      transform: translateY(0);
-    }
-
-    button.primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    button.primary:active:not(:disabled) { transform: translateY(0); }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
     button.secondary {
       background: var(--surface-strong);
@@ -346,9 +303,7 @@
       border-color: var(--border);
     }
 
-    button.secondary:hover {
-      background: rgba(255, 255, 255, 0.14);
-    }
+    button.secondary:hover { background: rgba(255, 255, 255, 0.14); }
 
     .error {
       background: rgba(239, 68, 68, 0.12);
@@ -370,11 +325,7 @@
       margin-bottom: 16px;
     }
 
-    .history-header h2 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-    }
+    .history-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
 
     .clear-btn {
       font-size: 13px;
@@ -388,10 +339,7 @@
       transition: var(--transition);
     }
 
-    .clear-btn:hover {
-      color: var(--danger);
-      background: rgba(239, 68, 68, 0.1);
-    }
+    .clear-btn:hover { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
 
     .history-list {
       list-style: none;
@@ -399,8 +347,8 @@
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      max-height: 280px;
+      gap: 10px;
+      max-height: 360px;
       overflow-y: auto;
     }
 
@@ -412,25 +360,42 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 14px;
+      padding: 12px 14px;
       background: rgba(0, 0, 0, 0.2);
       border-radius: var(--radius-sm);
       font-size: 14px;
+      gap: 12px;
     }
 
-    .history-item .values {
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      direction: ltr;
-      text-align: right;
+    .history-balls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
       flex: 1;
-      word-break: break-all;
+    }
+
+    .mini-ball {
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1);
+      color: #0f172a;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mini-ball.strong {
+      background: radial-gradient(circle at 30% 30%, #fde68a, var(--strong) 60%, var(--strong-2));
+      color: #fff;
     }
 
     .history-item .time {
       font-size: 12px;
       color: var(--text-muted);
-      margin-right: 12px;
       white-space: nowrap;
     }
 
@@ -466,16 +431,15 @@
       z-index: 100;
     }
 
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     @media (max-width: 480px) {
       .container { padding: 20px 14px 40px; }
       .card { padding: 20px 16px; }
       .actions { flex-direction: column; }
       button.primary, button.secondary { width: 100%; }
+      .ball { width: 48px; height: 48px; font-size: 18px; }
+      .ball.strong { width: 54px; height: 54px; font-size: 20px; }
     }
   </style>
 </head>
@@ -484,57 +448,69 @@
     <header>
       <div class="logo">
         <span class="dot"></span>
-        <span>מחולל מספרים אקראיים</span>
+        <span>מחולל לוטו</span>
       </div>
-      <h1>בחר טווח. קבל מספר.</h1>
-      <p class="subtitle">מחולל מספרים אקראיים מהיר, פשוט ומדויק</p>
+      <h1>6 מספרים + חזק</h1>
+      <p class="subtitle">הגרלת מספרים אקראית בסגנון מפעל הפיס</p>
     </header>
 
     <section class="card result-card" aria-live="polite">
-      <div class="result-label">תוצאה</div>
-      <div class="result-numbers" id="results"></div>
-      <button class="copy-btn" id="copyBtn" disabled aria-label="העתק תוצאה">
-        <span>העתק</span>
-      </button>
+      <div class="result-section">
+        <div class="result-label">המספרים</div>
+        <div class="result-numbers" id="results"></div>
+      </div>
+      <div class="result-section">
+        <div class="result-label">המספר החזק</div>
+        <div class="result-numbers" id="strongResult"></div>
+      </div>
+      <button class="copy-btn" id="copyBtn" disabled aria-label="העתק תוצאה">העתק</button>
     </section>
 
     <section class="card">
-      <div class="form-grid">
-        <div class="field">
-          <label for="min">מינימום</label>
-          <input type="number" id="min" value="1" inputmode="numeric">
-        </div>
-        <div class="field">
-          <label for="max">מקסימום</label>
-          <input type="number" id="max" value="100" inputmode="numeric">
-        </div>
-        <div class="field">
-          <label for="count">כמות מספרים</label>
-          <input type="number" id="count" value="1" min="1" max="1000" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="toggles">
-        <label class="toggle">
-          <input type="checkbox" id="unique">
-          <span>מספרים ייחודיים</span>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="sort">
-          <span>מיין תוצאות</span>
-        </label>
-      </div>
-
       <div class="error" id="error" role="alert"></div>
 
       <div class="actions">
-        <button class="primary" id="generateBtn" type="button">
-          <span>הגרל</span>
-        </button>
-        <button class="secondary" id="resetBtn" type="button">
-          <span>איפוס</span>
-        </button>
+        <button class="primary" id="generateBtn" type="button">הגרל</button>
+        <button class="secondary" id="resetBtn" type="button">איפוס</button>
       </div>
+
+      <div class="settings" id="settings">
+        <div class="settings-group">
+          <div class="settings-group-title">המספרים הרגילים</div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="mainCount">כמות</label>
+              <input type="number" id="mainCount" value="6" min="1" max="20" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label for="mainMin">מינימום</label>
+              <input type="number" id="mainMin" value="1" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label for="mainMax">מקסימום</label>
+              <input type="number" id="mainMax" value="37" inputmode="numeric">
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-title">המספר החזק</div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="strongMin">מינימום</label>
+              <input type="number" id="strongMin" value="1" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label for="strongMax">מקסימום</label>
+              <input type="number" id="strongMax" value="7" inputmode="numeric">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="settings-toggle" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settings">
+        <span id="settingsToggleLabel">הגדרות מתקדמות</span>
+        <span class="chevron">▼</span>
+      </button>
     </section>
 
     <section class="card">
@@ -557,28 +533,33 @@
     (function() {
       'use strict';
 
-      const STORAGE_KEY = 'rng_history_v1';
+      const STORAGE_KEY = 'lotto_history_v1';
       const MAX_HISTORY = 20;
-      const MAX_COUNT = 1000;
 
       const els = {
-        min: document.getElementById('min'),
-        max: document.getElementById('max'),
-        count: document.getElementById('count'),
-        unique: document.getElementById('unique'),
-        sort: document.getElementById('sort'),
+        mainCount: document.getElementById('mainCount'),
+        mainMin: document.getElementById('mainMin'),
+        mainMax: document.getElementById('mainMax'),
+        strongMin: document.getElementById('strongMin'),
+        strongMax: document.getElementById('strongMax'),
         generate: document.getElementById('generateBtn'),
         reset: document.getElementById('resetBtn'),
         results: document.getElementById('results'),
+        strongResult: document.getElementById('strongResult'),
         copy: document.getElementById('copyBtn'),
         error: document.getElementById('error'),
         history: document.getElementById('history'),
         emptyHistory: document.getElementById('emptyHistory'),
         clearHistory: document.getElementById('clearHistoryBtn'),
         toast: document.getElementById('toast'),
+        settings: document.getElementById('settings'),
+        settingsToggle: document.getElementById('settingsToggle'),
+        settingsToggleLabel: document.getElementById('settingsToggleLabel'),
       };
 
-      let lastResult = [];
+      const DEFAULTS = { mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
+
+      let lastResult = null;
       let history = loadHistory();
 
       function loadHistory() {
@@ -587,15 +568,11 @@
           if (!raw) return [];
           const parsed = JSON.parse(raw);
           return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
+        } catch { return []; }
       }
 
       function saveHistory() {
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-        } catch {}
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {}
       }
 
       function showError(msg) {
@@ -628,74 +605,79 @@
         return min + (v % range);
       }
 
+      function uniqueNumbers(count, min, max) {
+        const range = max - min + 1;
+        if (count > range / 2) {
+          const pool = [];
+          for (let i = min; i <= max; i++) pool.push(i);
+          for (let i = pool.length - 1; i > 0; i--) {
+            const j = randomInt(0, i);
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+          }
+          return pool.slice(0, count);
+        }
+        const seen = new Set();
+        const out = [];
+        while (out.length < count) {
+          const v = randomInt(min, max);
+          if (!seen.has(v)) { seen.add(v); out.push(v); }
+        }
+        return out;
+      }
+
       function generate() {
         clearError();
 
-        const min = parseInt(els.min.value, 10);
-        const max = parseInt(els.max.value, 10);
-        const count = parseInt(els.count.value, 10);
-        const unique = els.unique.checked;
-        const sort = els.sort.checked;
+        const mainCount = parseInt(els.mainCount.value, 10);
+        const mainMin = parseInt(els.mainMin.value, 10);
+        const mainMax = parseInt(els.mainMax.value, 10);
+        const strongMin = parseInt(els.strongMin.value, 10);
+        const strongMax = parseInt(els.strongMax.value, 10);
 
-        if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(count)) {
+        if ([mainCount, mainMin, mainMax, strongMin, strongMax].some(v => !Number.isFinite(v))) {
           showError('אנא הזן ערכים תקינים בכל השדות.');
           return;
         }
-        if (min > max) {
+        if (mainMin > mainMax || strongMin > strongMax) {
           showError('הערך המינימלי לא יכול להיות גדול מהמקסימלי.');
           return;
         }
-        if (count < 1 || count > MAX_COUNT) {
-          showError(`כמות המספרים חייבת להיות בין 1 ל-${MAX_COUNT}.`);
+        if (mainCount < 1 || mainCount > 20) {
+          showError('כמות המספרים חייבת להיות בין 1 ל-20.');
+          return;
+        }
+        const mainRange = mainMax - mainMin + 1;
+        if (mainCount > mainRange) {
+          showError(`לא ניתן להגריל ${mainCount} מספרים ייחודיים בטווח ${mainMin}-${mainMax}.`);
           return;
         }
 
-        const range = max - min + 1;
-        if (unique && count > range) {
-          showError(`לא ניתן להגריל ${count} מספרים ייחודיים בטווח שכולל רק ${range} ערכים.`);
-          return;
-        }
+        const main = uniqueNumbers(mainCount, mainMin, mainMax).sort((a, b) => a - b);
+        const strong = randomInt(strongMin, strongMax);
 
-        let nums = [];
-        if (unique) {
-          if (count > range / 2) {
-            const pool = [];
-            for (let i = min; i <= max; i++) pool.push(i);
-            for (let i = pool.length - 1; i > 0; i--) {
-              const j = randomInt(0, i);
-              [pool[i], pool[j]] = [pool[j], pool[i]];
-            }
-            nums = pool.slice(0, count);
-          } else {
-            const seen = new Set();
-            while (nums.length < count) {
-              const v = randomInt(min, max);
-              if (!seen.has(v)) {
-                seen.add(v);
-                nums.push(v);
-              }
-            }
-          }
-        } else {
-          for (let i = 0; i < count; i++) nums.push(randomInt(min, max));
-        }
-
-        if (sort) nums.sort((a, b) => a - b);
-
-        lastResult = nums;
-        renderResults(nums);
-        addToHistory({ values: nums, min, max, time: Date.now() });
+        lastResult = { main, strong, time: Date.now() };
+        renderResult(lastResult);
+        addToHistory(lastResult);
       }
 
-      function renderResults(nums) {
+      function renderResult(result) {
         els.results.innerHTML = '';
-        nums.forEach(n => {
-          const chip = document.createElement('span');
-          chip.className = 'number-chip';
-          chip.textContent = n.toLocaleString('he-IL');
-          els.results.appendChild(chip);
+        result.main.forEach((n, i) => {
+          const ball = document.createElement('span');
+          ball.className = 'ball';
+          ball.textContent = n.toLocaleString('he-IL');
+          ball.style.animationDelay = `${i * 60}ms`;
+          els.results.appendChild(ball);
         });
-        els.copy.disabled = nums.length === 0;
+
+        els.strongResult.innerHTML = '';
+        const strongBall = document.createElement('span');
+        strongBall.className = 'ball strong';
+        strongBall.textContent = result.strong.toLocaleString('he-IL');
+        strongBall.style.animationDelay = `${result.main.length * 60}ms`;
+        els.strongResult.appendChild(strongBall);
+
+        els.copy.disabled = false;
       }
 
       function addToHistory(entry) {
@@ -719,15 +701,32 @@
           const li = document.createElement('li');
           li.className = 'history-item';
 
-          const values = document.createElement('span');
-          values.className = 'values';
-          values.textContent = entry.values.join(', ');
+          const balls = document.createElement('div');
+          balls.className = 'history-balls';
+
+          entry.main.forEach(n => {
+            const b = document.createElement('span');
+            b.className = 'mini-ball';
+            b.textContent = n;
+            balls.appendChild(b);
+          });
+
+          const sep = document.createElement('span');
+          sep.style.color = 'var(--text-muted)';
+          sep.style.alignSelf = 'center';
+          sep.textContent = '+';
+          balls.appendChild(sep);
+
+          const strong = document.createElement('span');
+          strong.className = 'mini-ball strong';
+          strong.textContent = entry.strong;
+          balls.appendChild(strong);
 
           const time = document.createElement('span');
           time.className = 'time';
           time.textContent = formatTime(entry.time);
 
-          li.appendChild(values);
+          li.appendChild(balls);
           li.appendChild(time);
           els.history.appendChild(li);
         });
@@ -743,20 +742,21 @@
       }
 
       function resetForm() {
-        els.min.value = 1;
-        els.max.value = 100;
-        els.count.value = 1;
-        els.unique.checked = false;
-        els.sort.checked = false;
+        els.mainCount.value = DEFAULTS.mainCount;
+        els.mainMin.value = DEFAULTS.mainMin;
+        els.mainMax.value = DEFAULTS.mainMax;
+        els.strongMin.value = DEFAULTS.strongMin;
+        els.strongMax.value = DEFAULTS.strongMax;
         clearError();
         els.results.innerHTML = '';
+        els.strongResult.innerHTML = '';
         els.copy.disabled = true;
-        lastResult = [];
+        lastResult = null;
       }
 
       async function copyResult() {
-        if (lastResult.length === 0) return;
-        const text = lastResult.join(', ');
+        if (!lastResult) return;
+        const text = `${lastResult.main.join(', ')} + ${lastResult.strong}`;
         try {
           await navigator.clipboard.writeText(text);
           showToast('הועתק ללוח');
@@ -778,10 +778,17 @@
         renderHistory();
       }
 
+      function toggleSettings() {
+        const open = els.settings.classList.toggle('open');
+        els.settingsToggle.setAttribute('aria-expanded', String(open));
+        els.settingsToggleLabel.textContent = open ? 'סגור הגדרות' : 'הגדרות מתקדמות';
+      }
+
       els.generate.addEventListener('click', generate);
       els.reset.addEventListener('click', resetForm);
       els.copy.addEventListener('click', copyResult);
       els.clearHistory.addEventListener('click', clearHistory);
+      els.settingsToggle.addEventListener('click', toggleSettings);
 
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.target.matches('button')) {
