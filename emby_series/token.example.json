@@ -1,0 +1,7 @@
+{
+  "base_url": "https://play.embyil.tv:443",
+  "username": "oren121",
+  "token": "PUT-YOUR-EMBY-TOKEN-HERE",
+  "parent_id": "1070346",
+  "out_dir": "/storage/emulated/0/Download/EmbySeries"
+}
