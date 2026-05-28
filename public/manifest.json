@@ -1,0 +1,21 @@
+{
+  "name": "מחולל לוטו",
+  "short_name": "לוטו",
+  "description": "מחולל מספרי לוטו אקראיים - 6 מספרים ומספר חזק",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -4,11 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <meta name="description" content="מחולל מספרי לוטו - 6 מספרים רגילים ומספר חזק. מבוסס על הגרלה אקראית מאובטחת.">
+  <meta name="description" content="מחולל מספרי לוטו - 6 מספרים ומספר חזק. נמשך מ-Firebase עם גיבוי מקומי.">
   <title>מחולל לוטו - 6 מספרים + חזק</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://firestore.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -26,6 +29,7 @@
       --strong: #f59e0b;
       --strong-2: #ef4444;
       --success: #10b981;
+      --info: #06b6d4;
       --danger: #ef4444;
       --radius: 16px;
       --radius-sm: 10px;
@@ -44,7 +48,6 @@
       background-attachment: fixed;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }
 
     .container { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
@@ -52,193 +55,139 @@
     header { text-align: center; margin-bottom: 32px; }
 
     .logo {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-muted);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 8px 16px;
-      border-radius: 999px;
-      margin-bottom: 20px;
+      display: inline-flex; align-items: center; gap: 12px;
+      font-size: 14px; font-weight: 500; color: var(--text-muted);
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 8px 16px; border-radius: 999px; margin-bottom: 20px;
       backdrop-filter: blur(10px);
     }
 
     .logo .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--success);
-      box-shadow: 0 0 12px var(--success);
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success); box-shadow: 0 0 12px var(--success);
       animation: pulse 2s ease-in-out infinite;
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
     h1 {
-      font-size: clamp(28px, 5vw, 42px);
-      font-weight: 800;
-      margin: 0 0 8px;
+      font-size: clamp(28px, 5vw, 42px); font-weight: 800; margin: 0 0 8px;
       background: linear-gradient(135deg, #fff 0%, #c7d2fe 50%, #f9a8d4 100%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
       letter-spacing: -0.02em;
     }
 
     .subtitle { color: var(--text-muted); font-size: 16px; margin: 0; }
 
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px;
-      backdrop-filter: blur(20px);
-      box-shadow: var(--shadow);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px;
+      backdrop-filter: blur(20px); box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
 
-    .result-card {
-      text-align: center;
-      padding: 32px 24px;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(236, 72, 153, 0.15));
-      border-color: rgba(99, 102, 241, 0.3);
+    .tickets { display: flex; flex-direction: column; gap: 16px; }
+
+    .empty-tickets {
+      text-align: center; padding: 40px 20px; color: var(--text-muted);
+      font-size: 16px;
     }
 
-    .result-section { margin-bottom: 24px; }
-    .result-section:last-child { margin-bottom: 0; }
+    .empty-tickets .emoji { font-size: 48px; opacity: 0.5; display: block; margin-bottom: 12px; }
 
-    .result-label {
-      font-size: 13px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 14px;
-      font-weight: 600;
+    .ticket {
+      padding: 20px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.10));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: var(--radius);
+      animation: fadeIn 0.4s ease-out;
     }
 
-    .result-numbers {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 10px;
-      min-height: 64px;
-      align-items: center;
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
-    .result-numbers:empty::before {
-      content: '—';
-      font-size: 40px;
-      color: var(--text-muted);
-      opacity: 0.4;
+    .ticket-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px; gap: 8px; flex-wrap: wrap;
+    }
+
+    .ticket-title {
+      font-size: 13px; font-weight: 700; color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .source-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; padding: 4px 10px;
+      border-radius: 999px; text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .source-badge.firebase {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fcd34d;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .source-badge.local {
+      background: rgba(6, 182, 212, 0.15);
+      color: #67e8f9;
+      border: 1px solid rgba(6, 182, 212, 0.4);
+    }
+
+    .source-badge .badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+    }
+
+    .ticket-balls {
+      display: flex; flex-wrap: wrap; align-items: center;
+      justify-content: center; gap: 8px;
     }
 
     .ball {
-      width: 56px;
-      height: 56px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      font-weight: 700;
-      border-radius: 50%;
+      width: 48px; height: 48px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 19px; font-weight: 700; border-radius: 50%;
       background: radial-gradient(circle at 30% 30%, #ffffff, #e2e8f0 60%, #94a3b8);
       color: #0f172a;
-      box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.2),
-                  0 6px 14px rgba(0, 0, 0, 0.4);
-      animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: inset 0 -3px 6px rgba(0,0,0,0.2), 0 5px 12px rgba(0,0,0,0.35);
+      animation: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
       font-variant-numeric: tabular-nums;
     }
 
     .ball.strong {
       background: radial-gradient(circle at 30% 30%, #fde68a, var(--strong) 60%, var(--strong-2));
-      color: #fff;
-      box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.25),
-                  0 8px 22px rgba(245, 158, 11, 0.5);
-      width: 64px;
-      height: 64px;
-      font-size: 24px;
+      color: #fff; width: 54px; height: 54px; font-size: 21px;
+      box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25), 0 7px 18px rgba(245, 158, 11, 0.5);
+    }
+
+    .ball-sep {
+      color: var(--text-muted); font-size: 24px; margin: 0 4px; opacity: 0.6;
     }
 
     @keyframes pop {
-      0% { transform: scale(0.3) rotate(-20deg); opacity: 0; }
-      60% { transform: scale(1.1) rotate(5deg); opacity: 1; }
-      100% { transform: scale(1) rotate(0); opacity: 1; }
+      0% { transform: scale(0.3); opacity: 0; }
+      60% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
     }
 
-    .copy-btn {
-      font-size: 13px;
-      color: var(--text-muted);
-      background: transparent;
-      border: 1px solid var(--border);
-      padding: 6px 14px;
-      border-radius: 999px;
-      cursor: pointer;
-      font-family: inherit;
-      transition: var(--transition);
-      margin-top: 18px;
+    .ticket-actions {
+      display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;
     }
 
-    .copy-btn:hover:not(:disabled) {
-      color: var(--text);
-      border-color: var(--text-muted);
+    .ticket-actions button {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-muted); font-family: inherit;
+      font-size: 12px; padding: 5px 12px; border-radius: 999px;
+      cursor: pointer; transition: var(--transition);
     }
 
-    .copy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .settings-toggle {
-      width: 100%;
-      background: transparent;
-      color: var(--text-muted);
-      border: none;
-      font-family: inherit;
-      font-size: 14px;
-      cursor: pointer;
-      padding: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: var(--transition);
-    }
-
-    .settings-toggle:hover { color: var(--text); }
-
-    .settings-toggle .chevron {
-      transition: transform var(--transition);
-      display: inline-block;
-    }
-
-    .settings.open + .settings-toggle .chevron,
-    .settings-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
-
-    .settings {
-      display: none;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-      margin-top: 8px;
-    }
-
-    .settings.open { display: block; }
-
-    .settings-group { margin-bottom: 18px; }
-    .settings-group:last-child { margin-bottom: 0; }
-
-    .settings-group-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 10px;
-    }
+    .ticket-actions button:hover { color: var(--text); border-color: var(--text-muted); }
 
     .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 12px;
     }
 
@@ -247,145 +196,145 @@
     label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 
     input[type="number"] {
-      font-family: inherit;
-      font-size: 16px;
-      font-weight: 500;
-      color: var(--text);
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-      outline: none;
-      transition: var(--transition);
-      width: 100%;
-      direction: ltr;
-      text-align: right;
+      font-family: inherit; font-size: 16px; font-weight: 500; color: var(--text);
+      background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 14px;
+      outline: none; transition: var(--transition); width: 100%;
+      direction: ltr; text-align: right;
     }
 
     input[type="number"]:focus {
-      border-color: var(--accent);
-      background: rgba(0, 0, 0, 0.35);
+      border-color: var(--accent); background: rgba(0, 0, 0, 0.35);
       box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
     }
 
-    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 14px; background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 14px; transition: var(--transition);
+      user-select: none; margin-bottom: 16px; width: 100%;
+    }
+
+    .toggle:hover { background: rgba(0,0,0,0.3); }
+
+    .toggle input {
+      appearance: none; width: 36px; height: 20px;
+      background: rgba(255, 255, 255, 0.15); border-radius: 999px;
+      position: relative; cursor: pointer; transition: var(--transition);
+      flex-shrink: 0;
+    }
+
+    .toggle input::after {
+      content: ''; position: absolute; top: 2px; right: 2px;
+      width: 16px; height: 16px; background: #fff; border-radius: 50%;
+      transition: var(--transition);
+    }
+
+    .toggle input:checked { background: var(--accent); }
+    .toggle input:checked::after { right: 18px; }
+
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 
     button.primary, button.secondary {
-      flex: 1;
-      min-width: 140px;
-      font-family: inherit;
-      font-size: 16px;
-      font-weight: 600;
-      padding: 14px 20px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: var(--transition);
+      flex: 1; min-width: 140px;
+      font-family: inherit; font-size: 16px; font-weight: 600;
+      padding: 14px 20px; border-radius: var(--radius-sm);
+      cursor: pointer; transition: var(--transition);
       border: 1px solid transparent;
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
     }
 
     button.primary {
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      color: white;
-      box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35);
+      color: white; box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35);
     }
 
     button.primary:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 14px 36px rgba(99, 102, 241, 0.45);
+      transform: translateY(-2px); box-shadow: 0 14px 36px rgba(99, 102, 241, 0.45);
     }
 
-    button.primary:active:not(:disabled) { transform: translateY(0); }
-    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary:disabled { opacity: 0.6; cursor: wait; }
 
     button.secondary {
-      background: var(--surface-strong);
-      color: var(--text);
-      border-color: var(--border);
+      background: var(--surface-strong); color: var(--text); border-color: var(--border);
     }
 
-    button.secondary:hover { background: rgba(255, 255, 255, 0.14); }
+    button.secondary:hover { background: rgba(255,255,255,0.14); }
+
+    .spinner {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff; animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .error {
       background: rgba(239, 68, 68, 0.12);
       border: 1px solid rgba(239, 68, 68, 0.4);
-      color: #fecaca;
-      padding: 12px 16px;
-      border-radius: var(--radius-sm);
-      font-size: 14px;
-      margin-bottom: 16px;
-      display: none;
+      color: #fecaca; padding: 12px 16px;
+      border-radius: var(--radius-sm); font-size: 14px;
+      margin-bottom: 16px; display: none;
     }
 
     .error.show { display: block; }
 
+    .settings { display: none; padding-top: 16px; border-top: 1px solid var(--border); margin-top: 16px; }
+    .settings.open { display: block; }
+
+    .settings-group { margin-bottom: 18px; }
+    .settings-group-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+
+    .settings-toggle {
+      width: 100%; background: transparent; color: var(--text-muted); border: none;
+      font-family: inherit; font-size: 14px; cursor: pointer; padding: 10px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: var(--transition);
+    }
+
+    .settings-toggle:hover { color: var(--text); }
+    .settings-toggle .chevron { transition: transform var(--transition); display: inline-block; }
+    .settings-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
     .history-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
     }
 
     .history-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
 
     .clear-btn {
-      font-size: 13px;
-      background: transparent;
-      color: var(--text-muted);
-      border: none;
-      cursor: pointer;
-      font-family: inherit;
-      padding: 6px 10px;
-      border-radius: 6px;
-      transition: var(--transition);
+      font-size: 13px; background: transparent; color: var(--text-muted);
+      border: none; cursor: pointer; font-family: inherit;
+      padding: 6px 10px; border-radius: 6px; transition: var(--transition);
     }
 
     .clear-btn:hover { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
 
     .history-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      max-height: 360px;
-      overflow-y: auto;
+      list-style: none; padding: 0; margin: 0;
+      display: flex; flex-direction: column; gap: 10px;
+      max-height: 360px; overflow-y: auto;
     }
 
     .history-list::-webkit-scrollbar { width: 6px; }
-    .history-list::-webkit-scrollbar-track { background: transparent; }
     .history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
     .history-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 14px;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: var(--radius-sm);
-      font-size: 14px;
-      gap: 12px;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; background: rgba(0,0,0,0.2);
+      border-radius: var(--radius-sm); font-size: 14px; gap: 12px;
     }
 
-    .history-balls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      flex: 1;
-    }
+    .history-balls { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; align-items: center; }
 
     .mini-ball {
-      width: 30px;
-      height: 30px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: 700;
-      border-radius: 50%;
+      width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; border-radius: 50%;
       background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1);
-      color: #0f172a;
-      font-variant-numeric: tabular-nums;
+      color: #0f172a; font-variant-numeric: tabular-nums;
     }
 
     .mini-ball.strong {
@@ -394,52 +343,34 @@
     }
 
     .history-item .time {
-      font-size: 12px;
-      color: var(--text-muted);
-      white-space: nowrap;
+      font-size: 12px; color: var(--text-muted); white-space: nowrap;
     }
 
-    .empty-history {
-      color: var(--text-muted);
-      font-size: 14px;
-      text-align: center;
-      padding: 20px;
-    }
+    .empty-history { color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px; }
 
-    footer {
-      text-align: center;
-      margin-top: 32px;
-      color: var(--text-muted);
-      font-size: 13px;
-    }
+    footer { text-align: center; margin-top: 32px; color: var(--text-muted); font-size: 13px; }
 
     .toast {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
+      position: fixed; bottom: 24px; left: 50%;
       transform: translateX(-50%) translateY(100px);
-      background: var(--success);
-      color: white;
-      padding: 12px 24px;
-      border-radius: 999px;
-      font-size: 14px;
-      font-weight: 500;
+      background: var(--success); color: white;
+      padding: 12px 24px; border-radius: 999px;
+      font-size: 14px; font-weight: 500;
       box-shadow: 0 10px 30px rgba(16, 185, 129, 0.4);
-      opacity: 0;
-      transition: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-      pointer-events: none;
-      z-index: 100;
+      opacity: 0; transition: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none; z-index: 100;
     }
 
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     @media (max-width: 480px) {
       .container { padding: 20px 14px 40px; }
-      .card { padding: 20px 16px; }
+      .card { padding: 18px 14px; }
+      .ticket { padding: 16px 12px; }
       .actions { flex-direction: column; }
       button.primary, button.secondary { width: 100%; }
-      .ball { width: 48px; height: 48px; font-size: 18px; }
-      .ball.strong { width: 54px; height: 54px; font-size: 20px; }
+      .ball { width: 42px; height: 42px; font-size: 16px; }
+      .ball.strong { width: 48px; height: 48px; font-size: 18px; }
     }
   </style>
 </head>
@@ -451,26 +382,28 @@
         <span>מחולל לוטו</span>
       </div>
       <h1>6 מספרים + חזק</h1>
-      <p class="subtitle">הגרלת מספרים אקראית בסגנון מפעל הפיס</p>
+      <p class="subtitle">הגרלה אקראית — נמשכת מ-Firebase עם גיבוי מקומי</p>
     </header>
-
-    <section class="card result-card" aria-live="polite">
-      <div class="result-section">
-        <div class="result-label">המספרים</div>
-        <div class="result-numbers" id="results"></div>
-      </div>
-      <div class="result-section">
-        <div class="result-label">המספר החזק</div>
-        <div class="result-numbers" id="strongResult"></div>
-      </div>
-      <button class="copy-btn" id="copyBtn" disabled aria-label="העתק תוצאה">העתק</button>
-    </section>
 
     <section class="card">
       <div class="error" id="error" role="alert"></div>
 
+      <div class="form-grid" style="margin-bottom: 16px;">
+        <div class="field">
+          <label for="tickets">כמות טורים</label>
+          <input type="number" id="tickets" value="1" min="1" max="20" inputmode="numeric">
+        </div>
+      </div>
+
+      <label class="toggle">
+        <input type="checkbox" id="useFirebase" checked>
+        <span>השתמש ב-Firebase (אם זמין)</span>
+      </label>
+
       <div class="actions">
-        <button class="primary" id="generateBtn" type="button">הגרל</button>
+        <button class="primary" id="generateBtn" type="button">
+          <span id="generateLabel">הגרל</span>
+        </button>
         <button class="secondary" id="resetBtn" type="button">איפוס</button>
       </div>
 
@@ -513,6 +446,15 @@
       </button>
     </section>
 
+    <section class="card" aria-live="polite">
+      <div class="tickets" id="tickets-out">
+        <div class="empty-tickets" id="emptyTickets">
+          <span class="emoji">🎲</span>
+          <div>לחץ "הגרל" כדי להתחיל</div>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <div class="history-header">
         <h2>היסטוריה</h2>
@@ -522,31 +464,40 @@
       <div class="empty-history" id="emptyHistory">עדיין לא הוגרלו מספרים</div>
     </section>
 
-    <footer>
-      נבנה בעברית · מבוסס על <code>crypto.getRandomValues</code>
-    </footer>
+    <footer>נבנה בעברית · אקראיות קריפטוגרפית · מקור Firebase</footer>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
-    (function() {
+    (function () {
       'use strict';
 
-      const STORAGE_KEY = 'lotto_history_v1';
-      const MAX_HISTORY = 20;
+      const FB = {
+        projectId: 'randomnumbers-ca9f3',
+        apiKey: 'AIzaSyCCYei2vDcQOllbKOmW_sjmRPzvfzptHns',
+        collection: 'loto3',
+        maxIndex: 16273489,
+        maxRetries: 3,
+      };
+
+      const STORAGE_KEY = 'lotto_history_v2';
+      const MAX_HISTORY = 30;
+      const DEFAULTS = { tickets: 1, mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
 
       const els = {
+        tickets: document.getElementById('tickets'),
         mainCount: document.getElementById('mainCount'),
         mainMin: document.getElementById('mainMin'),
         mainMax: document.getElementById('mainMax'),
         strongMin: document.getElementById('strongMin'),
         strongMax: document.getElementById('strongMax'),
+        useFirebase: document.getElementById('useFirebase'),
         generate: document.getElementById('generateBtn'),
+        generateLabel: document.getElementById('generateLabel'),
         reset: document.getElementById('resetBtn'),
-        results: document.getElementById('results'),
-        strongResult: document.getElementById('strongResult'),
-        copy: document.getElementById('copyBtn'),
+        ticketsOut: document.getElementById('tickets-out'),
+        emptyTickets: document.getElementById('emptyTickets'),
         error: document.getElementById('error'),
         history: document.getElementById('history'),
         emptyHistory: document.getElementById('emptyHistory'),
@@ -557,10 +508,8 @@
         settingsToggleLabel: document.getElementById('settingsToggleLabel'),
       };
 
-      const DEFAULTS = { mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
-
-      let lastResult = null;
       let history = loadHistory();
+      renderHistory();
 
       function loadHistory() {
         try {
@@ -594,14 +543,10 @@
 
       function randomInt(min, max) {
         const range = max - min + 1;
-        const maxUint = 0xFFFFFFFF;
-        const limit = Math.floor((maxUint + 1) / range) * range;
+        const limit = Math.floor(0x100000000 / range) * range;
         const buf = new Uint32Array(1);
         let v;
-        do {
-          crypto.getRandomValues(buf);
-          v = buf[0];
-        } while (v >= limit);
+        do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
         return min + (v % range);
       }
 
@@ -625,59 +570,217 @@
         return out;
       }
 
-      function generate() {
+      function generateLocal(cfg) {
+        const main = uniqueNumbers(cfg.mainCount, cfg.mainMin, cfg.mainMax).sort((a, b) => a - b);
+        const strong = randomInt(cfg.strongMin, cfg.strongMax);
+        return { main, strong, source: 'local', time: Date.now() };
+      }
+
+      function parseFirestoreFields(fields) {
+        const nums = [];
+        const keys = Object.keys(fields).sort();
+        for (const k of keys) {
+          const v = fields[k];
+          if (v && typeof v === 'object') {
+            if ('integerValue' in v) nums.push({ k, n: parseInt(v.integerValue, 10) });
+            else if ('doubleValue' in v) nums.push({ k, n: Math.round(v.doubleValue) });
+            else if ('stringValue' in v) {
+              const n = parseInt(v.stringValue, 10);
+              if (Number.isFinite(n)) nums.push({ k, n });
+            }
+          }
+        }
+        return nums;
+      }
+
+      async function fetchFromFirestore(cfg) {
+        for (let attempt = 0; attempt < FB.maxRetries; attempt++) {
+          const idx = randomInt(1, FB.maxIndex);
+          const url = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents/${FB.collection}/${idx}?key=${FB.apiKey}`;
+          try {
+            const res = await fetch(url, { cache: 'no-store' });
+            if (res.status === 404) continue;
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (!data.fields) continue;
+
+            const parsed = parseFirestoreFields(data.fields);
+            if (parsed.length < cfg.mainCount + 1) continue;
+
+            const values = parsed.map(p => p.n);
+            const main = values.slice(0, cfg.mainCount).sort((a, b) => a - b);
+            const strong = values[cfg.mainCount];
+
+            return { main, strong, source: 'firebase', docId: idx, time: Date.now() };
+          } catch (e) {
+            if (attempt === FB.maxRetries - 1) throw e;
+          }
+        }
+        throw new Error('no_document');
+      }
+
+      async function generateOne(cfg, useFirebase) {
+        if (!useFirebase) return generateLocal(cfg);
+        try {
+          return await fetchFromFirestore(cfg);
+        } catch {
+          const r = generateLocal(cfg);
+          r.fallback = true;
+          return r;
+        }
+      }
+
+      function setLoading(loading) {
+        els.generate.disabled = loading;
+        if (loading) {
+          els.generateLabel.innerHTML = '<span class="spinner"></span> מגריל...';
+        } else {
+          els.generateLabel.textContent = 'הגרל';
+        }
+      }
+
+      async function generate() {
         clearError();
 
-        const mainCount = parseInt(els.mainCount.value, 10);
-        const mainMin = parseInt(els.mainMin.value, 10);
-        const mainMax = parseInt(els.mainMax.value, 10);
-        const strongMin = parseInt(els.strongMin.value, 10);
-        const strongMax = parseInt(els.strongMax.value, 10);
+        const cfg = {
+          tickets: parseInt(els.tickets.value, 10),
+          mainCount: parseInt(els.mainCount.value, 10),
+          mainMin: parseInt(els.mainMin.value, 10),
+          mainMax: parseInt(els.mainMax.value, 10),
+          strongMin: parseInt(els.strongMin.value, 10),
+          strongMax: parseInt(els.strongMax.value, 10),
+        };
+        const useFirebase = els.useFirebase.checked;
 
-        if ([mainCount, mainMin, mainMax, strongMin, strongMax].some(v => !Number.isFinite(v))) {
+        if (Object.values(cfg).some(v => !Number.isFinite(v))) {
           showError('אנא הזן ערכים תקינים בכל השדות.');
           return;
         }
-        if (mainMin > mainMax || strongMin > strongMax) {
+        if (cfg.tickets < 1 || cfg.tickets > 20) {
+          showError('כמות הטורים חייבת להיות בין 1 ל-20.');
+          return;
+        }
+        if (cfg.mainMin > cfg.mainMax || cfg.strongMin > cfg.strongMax) {
           showError('הערך המינימלי לא יכול להיות גדול מהמקסימלי.');
           return;
         }
-        if (mainCount < 1 || mainCount > 20) {
-          showError('כמות המספרים חייבת להיות בין 1 ל-20.');
-          return;
-        }
-        const mainRange = mainMax - mainMin + 1;
-        if (mainCount > mainRange) {
-          showError(`לא ניתן להגריל ${mainCount} מספרים ייחודיים בטווח ${mainMin}-${mainMax}.`);
+        if (cfg.mainCount > cfg.mainMax - cfg.mainMin + 1) {
+          showError('אין מספיק מספרים בטווח עבור כמות המספרים הרגילים.');
           return;
         }
 
-        const main = uniqueNumbers(mainCount, mainMin, mainMax).sort((a, b) => a - b);
-        const strong = randomInt(strongMin, strongMax);
-
-        lastResult = { main, strong, time: Date.now() };
-        renderResult(lastResult);
-        addToHistory(lastResult);
+        setLoading(true);
+        try {
+          const results = await Promise.all(
+            Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase))
+          );
+          renderTickets(results);
+          results.forEach(r => addToHistory(r));
+          const anyFallback = results.some(r => r.fallback);
+          if (useFirebase && anyFallback) {
+            showToast('Firebase לא הגיב — נוצרו מספרים מקומיים');
+          }
+        } catch (e) {
+          showError('שגיאה בהגרלה: ' + (e.message || e));
+        } finally {
+          setLoading(false);
+        }
       }
 
-      function renderResult(result) {
-        els.results.innerHTML = '';
-        result.main.forEach((n, i) => {
-          const ball = document.createElement('span');
-          ball.className = 'ball';
-          ball.textContent = n.toLocaleString('he-IL');
-          ball.style.animationDelay = `${i * 60}ms`;
-          els.results.appendChild(ball);
+      function renderTickets(tickets) {
+        els.ticketsOut.innerHTML = '';
+        if (els.emptyTickets) els.emptyTickets.style.display = 'none';
+
+        tickets.forEach((t, i) => {
+          const div = document.createElement('div');
+          div.className = 'ticket';
+
+          const header = document.createElement('div');
+          header.className = 'ticket-header';
+          const title = document.createElement('span');
+          title.className = 'ticket-title';
+          title.textContent = `טור ${i + 1}`;
+
+          const badge = document.createElement('span');
+          if (t.source === 'firebase') {
+            badge.className = 'source-badge firebase';
+            badge.innerHTML = '<span class="badge-dot"></span><span>Firebase</span>';
+          } else {
+            badge.className = 'source-badge local';
+            badge.innerHTML = '<span class="badge-dot"></span><span>מקומי</span>';
+          }
+
+          header.appendChild(title);
+          header.appendChild(badge);
+          div.appendChild(header);
+
+          const balls = document.createElement('div');
+          balls.className = 'ticket-balls';
+
+          t.main.forEach((n, idx) => {
+            const ball = document.createElement('span');
+            ball.className = 'ball';
+            ball.textContent = n.toLocaleString('he-IL');
+            ball.style.animationDelay = `${idx * 50}ms`;
+            balls.appendChild(ball);
+          });
+
+          const sep = document.createElement('span');
+          sep.className = 'ball-sep';
+          sep.textContent = '+';
+          balls.appendChild(sep);
+
+          const strong = document.createElement('span');
+          strong.className = 'ball strong';
+          strong.textContent = t.strong.toLocaleString('he-IL');
+          strong.style.animationDelay = `${t.main.length * 50}ms`;
+          balls.appendChild(strong);
+
+          div.appendChild(balls);
+
+          const actions = document.createElement('div');
+          actions.className = 'ticket-actions';
+
+          const copyBtn = document.createElement('button');
+          copyBtn.textContent = 'העתק';
+          copyBtn.addEventListener('click', () => copyTicket(t));
+          actions.appendChild(copyBtn);
+
+          const waBtn = document.createElement('button');
+          waBtn.textContent = 'שתף';
+          waBtn.addEventListener('click', () => shareTicket(t, i + 1));
+          actions.appendChild(waBtn);
+
+          div.appendChild(actions);
+          els.ticketsOut.appendChild(div);
         });
+      }
 
-        els.strongResult.innerHTML = '';
-        const strongBall = document.createElement('span');
-        strongBall.className = 'ball strong';
-        strongBall.textContent = result.strong.toLocaleString('he-IL');
-        strongBall.style.animationDelay = `${result.main.length * 60}ms`;
-        els.strongResult.appendChild(strongBall);
+      async function copyTicket(t) {
+        const text = `${t.main.join(', ')} + ${t.strong}`;
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast('הועתק ללוח');
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); showToast('הועתק ללוח'); } catch {}
+          document.body.removeChild(ta);
+        }
+      }
 
-        els.copy.disabled = false;
+      function shareTicket(t, num) {
+        const text = `🎲 לוטו - טור ${num}\n${t.main.join(', ')} + ${t.strong} (חזק)`;
+        if (navigator.share) {
+          navigator.share({ text }).catch(() => {});
+        } else {
+          const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+          window.open(url, '_blank', 'noopener');
+        }
       }
 
       function addToHistory(entry) {
@@ -711,11 +814,10 @@
             balls.appendChild(b);
           });
 
-          const sep = document.createElement('span');
-          sep.style.color = 'var(--text-muted)';
-          sep.style.alignSelf = 'center';
-          sep.textContent = '+';
-          balls.appendChild(sep);
+          const plus = document.createElement('span');
+          plus.style.color = 'var(--text-muted)';
+          plus.textContent = '+';
+          balls.appendChild(plus);
 
           const strong = document.createElement('span');
           strong.className = 'mini-ball strong';
@@ -724,7 +826,7 @@
 
           const time = document.createElement('span');
           time.className = 'time';
-          time.textContent = formatTime(entry.time);
+          time.textContent = formatTime(entry.time) + (entry.source === 'firebase' ? ' · FB' : '');
 
           li.appendChild(balls);
           li.appendChild(time);
@@ -733,43 +835,25 @@
       }
 
       function formatTime(ts) {
-        const d = new Date(ts);
         const diff = (Date.now() - ts) / 1000;
         if (diff < 60) return 'עכשיו';
         if (diff < 3600) return `לפני ${Math.floor(diff / 60)} ד׳`;
         if (diff < 86400) return `לפני ${Math.floor(diff / 3600)} ש׳`;
-        return d.toLocaleDateString('he-IL');
+        return new Date(ts).toLocaleDateString('he-IL');
       }
 
       function resetForm() {
+        els.tickets.value = DEFAULTS.tickets;
         els.mainCount.value = DEFAULTS.mainCount;
         els.mainMin.value = DEFAULTS.mainMin;
         els.mainMax.value = DEFAULTS.mainMax;
         els.strongMin.value = DEFAULTS.strongMin;
         els.strongMax.value = DEFAULTS.strongMax;
+        els.useFirebase.checked = true;
         clearError();
-        els.results.innerHTML = '';
-        els.strongResult.innerHTML = '';
-        els.copy.disabled = true;
-        lastResult = null;
-      }
-
-      async function copyResult() {
-        if (!lastResult) return;
-        const text = `${lastResult.main.join(', ')} + ${lastResult.strong}`;
-        try {
-          await navigator.clipboard.writeText(text);
-          showToast('הועתק ללוח');
-        } catch {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          try { document.execCommand('copy'); showToast('הועתק ללוח'); } catch {}
-          document.body.removeChild(ta);
-        }
+        els.ticketsOut.innerHTML = '';
+        els.ticketsOut.appendChild(els.emptyTickets);
+        els.emptyTickets.style.display = 'block';
       }
 
       function clearHistory() {
@@ -786,18 +870,21 @@
 
       els.generate.addEventListener('click', generate);
       els.reset.addEventListener('click', resetForm);
-      els.copy.addEventListener('click', copyResult);
       els.clearHistory.addEventListener('click', clearHistory);
       els.settingsToggle.addEventListener('click', toggleSettings);
 
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.target.matches('button')) {
+        if (e.key === 'Enter' && !e.target.matches('button, textarea')) {
           e.preventDefault();
           generate();
         }
       });
 
-      renderHistory();
+      if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
     })();
   </script>
 </body>
