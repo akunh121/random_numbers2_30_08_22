@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Emby Series Downloader Link Exporter
+-------------------------------------
+שולף עבור כל סדרה תחת ParentId נתון את כל הפרקים שלה
+ושומר קובץ JSON עם שמות קבצים וקישורי הורדה ישירים.
+
+דוגמאות הרצה:
+    # שימוש בקובץ הגדרות ברירת מחדל (token.json ליד הסקריפט)
+    python fetch_series.py --parent-id 1070346
+
+    # התחברות עם שם משתמש וסיסמה (שומר token חדש ל-token.json)
+    python fetch_series.py --base-url https://play.embyil.tv:443 \\
+        --username oren121 --password 'SECRET' --parent-id 1070346
+
+    # מיקום פלט מותאם ודילוג על סדרות שכבר נשמרו
+    python fetch_series.py --parent-id 1070346 \\
+        --out-dir ~/EmbySeries --skip-existing
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "token.json"
+DEFAULT_OUT_DIR = "/storage/emulated/0/Download/EmbySeries"
+DEFAULT_PARENT_ID = "1070346"
+REQUEST_TIMEOUT = 30
+
+
+# ----------------------------------------------------------------------------
+# Config
+
+def load_config(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[!] לא ניתן לקרוא {path}: {e}", file=sys.stderr)
+        return {}
+
+
+def save_config(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+# ----------------------------------------------------------------------------
+# HTTP
+
+def build_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=4,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def emby_login(session: requests.Session, base_url: str,
+               username: str, password: str) -> str:
+    """מבצע התחברות ומחזיר AccessToken חדש."""
+    url = f"{base_url.rstrip('/')}/Users/AuthenticateByName"
+    headers = {
+        "X-Emby-Authorization": (
+            'MediaBrowser Client="fetch_series.py", Device="cli", '
+            'DeviceId="fetch_series_cli", Version="1.0"'
+        ),
+        "Content-Type": "application/json",
+    }
+    payload = {"Username": username, "Pw": password}
+    r = session.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    token = data.get("AccessToken")
+    if not token:
+        raise RuntimeError("שרת Emby לא החזיר AccessToken")
+    return token
+
+
+def emby_get_items(session: requests.Session, base_url: str, token: str,
+                   parent_id: str, item_types: str,
+                   limit: int = 1000) -> List[Dict[str, Any]]:
+    url = f"{base_url.rstrip('/')}/Items"
+    params = {
+        "ParentId": parent_id,
+        "IncludeItemTypes": item_types,
+        "Recursive": "true",
+        "Limit": limit,
+    }
+    headers = {"X-Emby-Token": token}
+    r = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    return r.json().get("Items", [])
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+
+_INVALID_FS_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_filename(name: str, max_len: int = 150) -> str:
+    cleaned = _INVALID_FS_CHARS.sub(" ", name).strip().rstrip(". ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:max_len] or "untitled"
+
+
+def expand_path(p: str) -> Path:
+    return Path(os.path.expanduser(os.path.expandvars(p)))
+
+
+# ----------------------------------------------------------------------------
+# Main fetch logic
+
+def fetch_series(session: requests.Session, base_url: str, token: str,
+                 parent_id: str, out_dir: Path,
+                 skip_existing: bool = False) -> None:
+    print(f"שולף סדרות מתחת ParentId={parent_id} ...")
+    series_items = emby_get_items(
+        session, base_url, token, parent_id, "Series", limit=1000
+    )
+    if not series_items:
+        print("לא נמצאו סדרות.")
+        return
+
+    print(f"נמצאו {len(series_items)} סדרות.")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, series in enumerate(series_items, start=1):
+        series_name = series.get("Name") or "סדרה ללא שם"
+        series_id = series["Id"]
+        safe_name = sanitize_filename(series_name)
+        out_path = out_dir / f"{safe_name}.json"
+
+        if skip_existing and out_path.exists():
+            print(f"[{idx}/{len(series_items)}] דילוג (קיים): {series_name}")
+            continue
+
+        print(f"[{idx}/{len(series_items)}] מעבד: {series_name} (Id={series_id})")
+
+        episodes_list: List[Dict[str, str]] = []
+        seasons = emby_get_items(
+            session, base_url, token, series_id, "Season", limit=200
+        )
+
+        for season in seasons:
+            season_number = season.get("IndexNumber", 1)
+            season_id = season["Id"]
+            season_label = f"עונה {season_number}"
+
+            episodes = emby_get_items(
+                session, base_url, token, season_id, "Episode", limit=2000
+            )
+
+            for episode in episodes:
+                episode_number = episode.get("IndexNumber", 0)
+                episode_id = episode["Id"]
+                link = (
+                    f"{base_url.rstrip('/')}/Items/{episode_id}"
+                    f"/Download?X-Emby-Token={token}"
+                )
+                file_name = sanitize_filename(
+                    f"{series_name} {season_label} פרק {episode_number}.mkv"
+                )
+                episodes_list.append({
+                    "file_name": file_name,
+                    "download_link": link,
+                })
+
+        with out_path.open("w", encoding="utf-8") as f_out:
+            json.dump(episodes_list, f_out, ensure_ascii=False, indent=2)
+
+        print(f"    -> נשמר {out_path.name} ({len(episodes_list)} פרקים)")
+
+
+# ----------------------------------------------------------------------------
+# CLI
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="ייצוא קישורי הורדה לסדרות מ-Emby לקבצי JSON.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    p.add_argument("--config", default=str(DEFAULT_CONFIG_PATH),
+                   help=f"נתיב לקובץ הגדרות JSON (ברירת מחדל: {DEFAULT_CONFIG_PATH})")
+    p.add_argument("--base-url", help="כתובת שרת Emby (למשל https://play.embyil.tv:443)")
+    p.add_argument("--token", help="X-Emby-Token (אם קיים, מועדף על username/password)")
+    p.add_argument("--username", help="שם משתמש להתחברות (אם אין token)")
+    p.add_argument("--password", help="סיסמה להתחברות")
+    p.add_argument("--parent-id", default=None,
+                   help=f"ParentId של קטגוריית הסדרות (ברירת מחדל: {DEFAULT_PARENT_ID})")
+    p.add_argument("--out-dir", default=None,
+                   help=f"תיקיית פלט (ברירת מחדל: {DEFAULT_OUT_DIR})")
+    p.add_argument("--skip-existing", action="store_true",
+                   help="דלג על סדרות שכבר נשמרו ל-JSON")
+    p.add_argument("--save-token", action="store_true",
+                   help="שמור את ה-token לקובץ ההגדרות אחרי לוגין מוצלח")
+    return p.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    config_path = expand_path(args.config)
+    config = load_config(config_path)
+
+    base_url = args.base_url or config.get("base_url")
+    if not base_url:
+        print("[!] חסר base_url (--base-url או בקובץ ההגדרות)", file=sys.stderr)
+        return 2
+
+    token = args.token or config.get("token")
+    username = args.username or config.get("username")
+    password = args.password or config.get("password")
+
+    session = build_session()
+
+    if not token:
+        if not (username and password):
+            print("[!] חסר token, וגם שם משתמש/סיסמה ללוגין", file=sys.stderr)
+            return 2
+        print(f"מתחבר ל-{base_url} כ-{username} ...")
+        try:
+            token = emby_login(session, base_url, username, password)
+        except requests.HTTPError as e:
+            print(f"[!] לוגין נכשל: {e}", file=sys.stderr)
+            return 1
+        print("התחברות הצליחה.")
+        if args.save_token or not config.get("token"):
+            config.update({"base_url": base_url, "username": username, "token": token})
+            config.pop("password", None)
+            save_config(config_path, config)
+            print(f"Token נשמר ב-{config_path}")
+
+    parent_id = args.parent_id or config.get("parent_id") or DEFAULT_PARENT_ID
+    out_dir = expand_path(args.out_dir or config.get("out_dir") or DEFAULT_OUT_DIR)
+
+    try:
+        fetch_series(session, base_url, token, parent_id, out_dir,
+                     skip_existing=args.skip_existing)
+    except requests.HTTPError as e:
+        print(f"[!] שגיאת HTTP מ-Emby: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nהופסק על ידי המשתמש.", file=sys.stderr)
+        return 130
+
+    print("\nסיום.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
