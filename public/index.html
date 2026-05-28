@@ -743,14 +743,10 @@
 
           const strongRow = document.createElement('div');
           strongRow.className = 'ticket-strong-row';
-          const strongLabel = document.createElement('span');
-          strongLabel.className = 'strong-label';
-          strongLabel.textContent = 'החזק';
           const strong = document.createElement('span');
           strong.className = 'ball strong';
           strong.textContent = t.strong.toLocaleString('he-IL');
           strong.style.animationDelay = `${t.main.length * 50}ms`;
-          strongRow.appendChild(strongLabel);
           strongRow.appendChild(strong);
           div.appendChild(strongRow);
 
