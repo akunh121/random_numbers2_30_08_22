@@ -200,11 +200,11 @@
     }
 
     .ticket-balls {
-      display: grid;
-      grid-template-columns: repeat(3, auto);
+      display: flex;
+      flex-wrap: nowrap;
       justify-content: center;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       direction: ltr;
     }
 
@@ -436,14 +436,22 @@
 
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+    .ball { flex-shrink: 0; }
+
     @media (max-width: 480px) {
       .container { padding: 20px 14px 40px; }
       .card { padding: 18px 14px; }
-      .ticket { padding: 16px 12px; }
+      .ticket { padding: 16px 10px; }
       .actions { flex-direction: column; }
       button.primary, button.secondary { width: 100%; }
-      .ball { width: 42px; height: 42px; font-size: 16px; }
-      .ball.strong { width: 48px; height: 48px; font-size: 18px; }
+      .ticket-balls { gap: 6px; }
+      .ball { width: 40px; height: 40px; font-size: 15px; }
+      .ball.strong { width: 52px; height: 52px; font-size: 20px; }
+    }
+
+    @media (max-width: 360px) {
+      .ticket-balls { gap: 4px; }
+      .ball { width: 36px; height: 36px; font-size: 14px; }
     }
   </style>
 </head>
