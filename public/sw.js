@@ -1,4 +1,4 @@
-const CACHE = 'lotto-v6';
+const CACHE = 'lotto-v7';
 const SHELL = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -17,7 +17,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (url.hostname === 'firestore.googleapis.com') return;
+  if (url.origin !== self.location.origin) return;
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then(
