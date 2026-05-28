@@ -578,18 +578,20 @@
 
       function parseFirestoreFields(fields) {
         const nums = [];
-        const keys = Object.keys(fields).sort();
-        for (const k of keys) {
+        for (const k of Object.keys(fields)) {
+          const m = k.match(/^n(\d+)$/);
+          if (!m) continue;
           const v = fields[k];
-          if (v && typeof v === 'object') {
-            if ('integerValue' in v) nums.push({ k, n: parseInt(v.integerValue, 10) });
-            else if ('doubleValue' in v) nums.push({ k, n: Math.round(v.doubleValue) });
-            else if ('stringValue' in v) {
-              const n = parseInt(v.stringValue, 10);
-              if (Number.isFinite(n)) nums.push({ k, n });
-            }
-          }
+          if (!v || typeof v !== 'object') continue;
+          let n;
+          if ('integerValue' in v) n = parseInt(v.integerValue, 10);
+          else if ('doubleValue' in v) n = Math.round(v.doubleValue);
+          else if ('stringValue' in v) n = parseInt(v.stringValue, 10);
+          else continue;
+          if (!Number.isFinite(n)) continue;
+          nums.push({ idx: parseInt(m[1], 10), n });
         }
+        nums.sort((a, b) => a.idx - b.idx);
         return nums;
       }
 
