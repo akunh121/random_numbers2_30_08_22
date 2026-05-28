@@ -146,6 +146,17 @@
       justify-content: center; gap: 8px;
     }
 
+    .ticket-strong-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; margin-top: 14px; padding-top: 14px;
+      border-top: 1px dashed rgba(255,255,255,0.12);
+    }
+
+    .strong-label {
+      font-size: 12px; font-weight: 700; color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
     .ball {
       width: 48px; height: 48px;
       display: inline-flex; align-items: center; justify-content: center;
@@ -718,7 +729,6 @@
 
           const balls = document.createElement('div');
           balls.className = 'ticket-balls';
-
           t.main.forEach((n, idx) => {
             const ball = document.createElement('span');
             ball.className = 'ball';
@@ -726,19 +736,20 @@
             ball.style.animationDelay = `${idx * 50}ms`;
             balls.appendChild(ball);
           });
+          div.appendChild(balls);
 
-          const sep = document.createElement('span');
-          sep.className = 'ball-sep';
-          sep.textContent = '+';
-          balls.appendChild(sep);
-
+          const strongRow = document.createElement('div');
+          strongRow.className = 'ticket-strong-row';
+          const strongLabel = document.createElement('span');
+          strongLabel.className = 'strong-label';
+          strongLabel.textContent = 'החזק';
           const strong = document.createElement('span');
           strong.className = 'ball strong';
           strong.textContent = t.strong.toLocaleString('he-IL');
           strong.style.animationDelay = `${t.main.length * 50}ms`;
-          balls.appendChild(strong);
-
-          div.appendChild(balls);
+          strongRow.appendChild(strongLabel);
+          strongRow.appendChild(strong);
+          div.appendChild(strongRow);
 
           const actions = document.createElement('div');
           actions.className = 'ticket-actions';
