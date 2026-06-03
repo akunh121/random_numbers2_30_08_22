@@ -93,6 +93,13 @@ def main():
         'totalUniqueCombos': len(combos),
     }
 
+    jackpot_path = REPO / 'public' / 'lotto-jackpot.json'
+    if jackpot_path.exists():
+        try:
+            out['jackpot'] = json.loads(jackpot_path.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            pass
+
     with OUT_PATH.open('w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, separators=(',', ':'))
 
