@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Daily lotto stats updater for a 24/7 Windows machine.
+"""Self-scheduling lotto stats updater for a 24/7 Windows machine.
 
-Downloads the latest CSV from pais.co.il, rebuilds the stats JSON, scrapes
-the current jackpot, and pushes all three files to GitHub via the Contents
-API — no git installation required, only Python 3.
+Default mode is a daemon: the script stays alive and runs the update by
+itself every Tuesday, Thursday and Saturday at 23:55 local time
+(roughly two hours after each Israeli Lotto draw). Pass --once for a
+single immediate run, useful for testing or for Task Scheduler.
+
+The work itself: downloads the latest CSV from pais.co.il, rebuilds
+the stats JSON, scrapes the current jackpot, and pushes all three
+files to GitHub via the Contents API — no git installation required.
 
 Configuration (in priority order):
   1. environment variable LOTTO_GITHUB_TOKEN
@@ -23,10 +28,28 @@ import json
 import os
 import re
 import sys
+import time
+import traceback
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+# === Hard-coded schedule (local time on the host machine) ============
+# Python weekday(): Monday=0, Tuesday=1, Wednesday=2, Thursday=3,
+# Friday=4, Saturday=5, Sunday=6.
+SCHEDULE_DAYS = {1, 3, 5}      # Tuesday, Thursday, Saturday
+SCHEDULE_HOUR = 23
+SCHEDULE_MIN = 55
+# After a run, sleep at least this long so the same minute window does
+# not trigger us twice.
+POST_RUN_SLEEP = 180           # seconds
+# When the next slot is far away, wake up periodically to recompute it
+# (handles DST, sleep/resume, clock changes, etc.).
+MAX_SLEEP = 1800               # seconds (30 minutes)
+DAY_NAMES_HE = {0: 'שני', 1: 'שלישי', 2: 'רביעי', 3: 'חמישי',
+                4: 'שישי', 5: 'שבת', 6: 'ראשון'}
+# ====================================================================
 
 REPO = 'akunh121/random_numbers2_30_08_22'
 BRANCH = 'claude/website-app-development-68IT9'
@@ -186,7 +209,7 @@ def push_file(path: str, content: bytes, message: str) -> bool:
     return True
 
 
-def main() -> int:
+def do_update() -> int:
     print('Downloading CSV from pais.co.il ...')
     csv_bytes = http(PAIS_CSV)
     print(f'  got {len(csv_bytes):,} bytes')
@@ -221,11 +244,74 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+def next_scheduled(now: datetime) -> datetime:
+    """Return the next datetime matching the hard-coded schedule (>= now+1s)."""
+    today = now.replace(hour=SCHEDULE_HOUR, minute=SCHEDULE_MIN,
+                        second=0, microsecond=0)
+    if now.weekday() in SCHEDULE_DAYS and today > now:
+        return today
+    for ahead in range(1, 8):
+        candidate = (now + timedelta(days=ahead)).replace(
+            hour=SCHEDULE_HOUR, minute=SCHEDULE_MIN,
+            second=0, microsecond=0)
+        if candidate.weekday() in SCHEDULE_DAYS:
+            return candidate
+    raise RuntimeError('No valid scheduled day in the next week (impossible).')
+
+
+def run_once_safe() -> None:
     try:
-        sys.exit(main())
+        do_update()
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', errors='replace')[:300]
-        sys.exit(f'GitHub API {e.code}: {body}')
-    except Exception as e:
-        sys.exit(f'ERROR: {type(e).__name__}: {e}')
+        print(f'GitHub API {e.code}: {body}')
+    except urllib.error.URLError as e:
+        print(f'Network error: {e}')
+    except Exception:
+        print('Update crashed:')
+        traceback.print_exc()
+
+
+def daemon() -> int:
+    days_he = ' / '.join(DAY_NAMES_HE[d] for d in sorted(SCHEDULE_DAYS))
+    print(f'Daemon started. Schedule (local time): {days_he} at '
+          f'{SCHEDULE_HOUR:02d}:{SCHEDULE_MIN:02d}.')
+    while True:
+        try:
+            now = datetime.now()
+            target = next_scheduled(now)
+            wait = (target - now).total_seconds()
+            if wait <= 0:
+                print(f'\n=== {now:%Y-%m-%d %H:%M:%S} — running scheduled update ===')
+                run_once_safe()
+                time.sleep(POST_RUN_SLEEP)
+                continue
+            sleep_for = min(wait, MAX_SLEEP)
+            print(f'Next run: {target:%a %Y-%m-%d %H:%M} '
+                  f'(in {int(wait)}s; sleeping {int(sleep_for)}s)',
+                  flush=True)
+            time.sleep(sleep_for)
+        except KeyboardInterrupt:
+            print('\nStopped by user.')
+            return 0
+        except Exception:
+            print('Scheduler loop crashed:')
+            traceback.print_exc()
+            time.sleep(60)
+
+
+if __name__ == '__main__':
+    args = set(sys.argv[1:])
+    if args & {'--once', '-1', 'once'}:
+        try:
+            sys.exit(do_update())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8', errors='replace')[:300]
+            sys.exit(f'GitHub API {e.code}: {body}')
+        except Exception as e:
+            sys.exit(f'ERROR: {type(e).__name__}: {e}')
+    elif args & {'--help', '-h'}:
+        print(__doc__)
+        sys.exit(0)
+    else:
+        sys.exit(daemon())
