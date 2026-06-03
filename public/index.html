@@ -421,6 +421,93 @@
 
     .empty-history { color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px; }
 
+    .real-draw {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(239, 68, 68, 0.08));
+      border-color: rgba(245, 158, 11, 0.3);
+      padding: 18px 20px;
+    }
+    .real-draw-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+    }
+    .real-draw-title { font-size: 13px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; }
+    .real-draw-date { font-size: 12px; color: var(--text-muted); }
+
+    .stats-toggle {
+      display: flex; justify-content: space-between; align-items: center;
+      width: 100%; background: transparent; color: var(--text); border: none;
+      font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+      padding: 6px 4px;
+    }
+    .stats-toggle .chevron { transition: transform var(--transition); display: inline-block; font-size: 12px; color: var(--text-muted); }
+    .stats-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
+    .stats-body { display: none; margin-top: 16px; }
+    .stats-body.open { display: block; }
+
+    .stats-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+
+    .stats-section { margin-bottom: 18px; }
+    .stats-section:last-child { margin-bottom: 0; }
+    .stats-section-title {
+      font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text);
+    }
+
+    .heatmap {
+      display: grid; grid-template-columns: repeat(8, 1fr);
+      gap: 4px; direction: ltr;
+    }
+    .heat-cell {
+      aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+      border-radius: 6px; font-size: 11px; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      background: rgba(99, 102, 241, 0.15); color: var(--text);
+      transition: var(--transition);
+    }
+
+    .stats-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      direction: ltr;
+    }
+    .stats-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      padding: 4px 8px; border-radius: 999px;
+      font-size: 12px; font-variant-numeric: tabular-nums;
+    }
+    .stats-pill .pill-num { font-weight: 700; }
+    .stats-pill .pill-meta { color: var(--text-muted); font-size: 11px; }
+
+    .pick-mode-group {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .pick-mode-opt {
+      flex: 1; min-width: 100px;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(0,0,0,0.2); border: 1px solid var(--border);
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 13px; transition: var(--transition);
+      user-select: none;
+    }
+    .pick-mode-opt:has(input:checked) {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+    .pick-mode-opt input { accent-color: var(--accent); }
+    .pick-mode-opt .mode-label { font-weight: 600; }
+    .pick-mode-opt .mode-desc { font-size: 11px; color: var(--text-muted); }
+
+    .match-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600;
+      padding: 4px 10px; border-radius: 999px;
+      margin-top: 10px;
+    }
+    .match-badge.match-0 { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+    .match-badge.match-low { background: rgba(6, 182, 212, 0.15); color: #67e8f9; }
+    .match-badge.match-mid { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+    .match-badge.match-high { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+
     footer { text-align: center; margin-top: 32px; color: var(--text-muted); font-size: 13px; }
 
     .toast {
@@ -502,6 +589,30 @@
         <span>השתמש ב-Firebase (אם זמין)</span>
       </label>
 
+      <div class="pick-mode-group" role="radiogroup" aria-label="מצב הגרלה">
+        <label class="pick-mode-opt">
+          <input type="radio" name="pickMode" value="uniform" checked>
+          <div>
+            <div class="mode-label">אקראי</div>
+            <div class="mode-desc">סיכוי שווה</div>
+          </div>
+        </label>
+        <label class="pick-mode-opt">
+          <input type="radio" name="pickMode" value="hot">
+          <div>
+            <div class="mode-label">חמים</div>
+            <div class="mode-desc">יצאו הרבה</div>
+          </div>
+        </label>
+        <label class="pick-mode-opt">
+          <input type="radio" name="pickMode" value="cold">
+          <div>
+            <div class="mode-label">קרים</div>
+            <div class="mode-desc">לא יצאו זמן</div>
+          </div>
+        </label>
+      </div>
+
       <div class="actions">
         <button class="primary" id="generateBtn" type="button">
           <span id="generateLabel">הגרל</span>
@@ -553,6 +664,45 @@
         <div class="empty-tickets" id="emptyTickets">
           <span class="emoji">🎲</span>
           <div>לחץ "הגרל" כדי להתחיל</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card real-draw" id="realDrawCard" style="display: none;">
+      <div class="real-draw-header">
+        <span class="real-draw-title">ההגרלה האחרונה במציאות</span>
+        <span class="real-draw-date" id="realDrawMeta"></span>
+      </div>
+      <div class="ticket-balls" id="realDrawBalls"></div>
+      <div class="ticket-strong-row" id="realDrawStrong"></div>
+    </section>
+
+    <section class="card" id="statsCard" style="display: none;">
+      <button class="stats-toggle" id="statsToggle" type="button" aria-expanded="false" aria-controls="statsBody">
+        <span>סטטיסטיקה היסטורית</span>
+        <span class="chevron">▼</span>
+      </button>
+      <div class="stats-body" id="statsBody">
+        <div class="stats-meta" id="statsMeta"></div>
+
+        <div class="stats-section">
+          <div class="stats-section-title">תדירות מספרים רגילים (1–37)</div>
+          <div class="heatmap" id="mainHeatmap"></div>
+        </div>
+
+        <div class="stats-section">
+          <div class="stats-section-title">המספרים החמים</div>
+          <div class="stats-row" id="hotList"></div>
+        </div>
+
+        <div class="stats-section">
+          <div class="stats-section-title">המספרים הקרים (לא יצאו זמן רב)</div>
+          <div class="stats-row" id="coldList"></div>
+        </div>
+
+        <div class="stats-section">
+          <div class="stats-section-title">תדירות המספר החזק (1–7)</div>
+          <div class="stats-row" id="strongList"></div>
         </div>
       </div>
     </section>
@@ -632,7 +782,117 @@
       settings: document.getElementById('settings'),
       settingsToggle: document.getElementById('settingsToggle'),
       settingsToggleLabel: document.getElementById('settingsToggleLabel'),
+      pickModeRadios: document.querySelectorAll('input[name="pickMode"]'),
+      realDrawCard: document.getElementById('realDrawCard'),
+      realDrawMeta: document.getElementById('realDrawMeta'),
+      realDrawBalls: document.getElementById('realDrawBalls'),
+      realDrawStrong: document.getElementById('realDrawStrong'),
+      statsCard: document.getElementById('statsCard'),
+      statsToggle: document.getElementById('statsToggle'),
+      statsBody: document.getElementById('statsBody'),
+      statsMeta: document.getElementById('statsMeta'),
+      mainHeatmap: document.getElementById('mainHeatmap'),
+      hotList: document.getElementById('hotList'),
+      coldList: document.getElementById('coldList'),
+      strongList: document.getElementById('strongList'),
     };
+
+    let stats = null;
+    loadStats();
+
+    function getPickMode() {
+      for (const r of els.pickModeRadios) if (r.checked) return r.value;
+      return 'uniform';
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('./lotto-stats.json', { cache: 'force-cache' });
+        if (!res.ok) return;
+        stats = await res.json();
+        renderRealDraw();
+        renderStats();
+      } catch {}
+    }
+
+    function renderRealDraw() {
+      if (!stats || !stats.recent || !stats.recent.length) return;
+      const latest = stats.recent[0];
+      els.realDrawCard.style.display = 'block';
+      els.realDrawMeta.textContent = `הגרלה #${latest.draw} · ${latest.date}`;
+      els.realDrawBalls.innerHTML = '';
+      latest.main.forEach((n, idx) => {
+        const b = document.createElement('span');
+        b.className = 'ball';
+        b.textContent = n.toLocaleString('he-IL');
+        b.style.animationDelay = `${idx * 50}ms`;
+        els.realDrawBalls.appendChild(b);
+      });
+      els.realDrawStrong.innerHTML = '';
+      const s = document.createElement('span');
+      s.className = 'ball strong';
+      s.textContent = latest.strong.toLocaleString('he-IL');
+      els.realDrawStrong.appendChild(s);
+    }
+
+    function renderStats() {
+      if (!stats) return;
+      els.statsCard.style.display = 'block';
+      els.statsMeta.textContent = `מבוסס על ${stats.totalDraws.toLocaleString('he-IL')} הגרלות · ${stats.firstDate} עד ${stats.lastDate}`;
+
+      const counts = Object.values(stats.main).map(v => v.count);
+      const minC = Math.min(...counts);
+      const maxC = Math.max(...counts);
+      els.mainHeatmap.innerHTML = '';
+      for (let n = 1; n <= 37; n++) {
+        const s = stats.main[String(n)];
+        const t = maxC === minC ? 0.5 : (s.count - minC) / (maxC - minC);
+        const cell = document.createElement('div');
+        cell.className = 'heat-cell';
+        cell.textContent = n;
+        const r = Math.round(99 + (236 - 99) * t);
+        const g = Math.round(102 + (72 - 102) * t);
+        const b = Math.round(241 + (153 - 241) * t);
+        cell.style.background = `rgb(${r}, ${g}, ${b})`;
+        cell.title = `${n}: יצא ${s.count} פעמים, אחרון לפני ${s.drawsSince} הגרלות`;
+        els.mainHeatmap.appendChild(cell);
+      }
+
+      const sortedHot = Object.entries(stats.main).sort((a, b) => b[1].count - a[1].count).slice(0, 6);
+      els.hotList.innerHTML = '';
+      sortedHot.forEach(([n, s]) => {
+        const p = document.createElement('span');
+        p.className = 'stats-pill';
+        p.innerHTML = `<span class="pill-num">${n}</span><span class="pill-meta">×${s.count}</span>`;
+        els.hotList.appendChild(p);
+      });
+
+      const sortedCold = Object.entries(stats.main).sort((a, b) => b[1].drawsSince - a[1].drawsSince).slice(0, 6);
+      els.coldList.innerHTML = '';
+      sortedCold.forEach(([n, s]) => {
+        const p = document.createElement('span');
+        p.className = 'stats-pill';
+        p.innerHTML = `<span class="pill-num">${n}</span><span class="pill-meta">${s.drawsSince} הגרלות</span>`;
+        els.coldList.appendChild(p);
+      });
+
+      els.strongList.innerHTML = '';
+      for (let n = 1; n <= 7; n++) {
+        const s = stats.strong[String(n)];
+        const pct = (s.count / stats.totalDraws * 100).toFixed(1);
+        const p = document.createElement('span');
+        p.className = 'stats-pill';
+        p.innerHTML = `<span class="pill-num">${n}</span><span class="pill-meta">${pct}%</span>`;
+        els.strongList.appendChild(p);
+      }
+    }
+
+    function toggleStats() {
+      const open = els.statsBody.classList.toggle('open');
+      els.statsToggle.setAttribute('aria-expanded', String(open));
+    }
+
+    els.statsToggle.addEventListener('click', toggleStats);
 
     let history = loadHistory();
     renderHistory();
@@ -758,10 +1018,70 @@
         return out;
       }
 
-      function generateLocal(cfg) {
-        const main = uniqueNumbers(cfg.mainCount, cfg.mainMin, cfg.mainMax).sort((a, b) => a - b);
-        const strong = randomInt(cfg.strongMin, cfg.strongMax);
-        return { main, strong, source: 'local', time: Date.now() };
+      function weightedPickWithoutReplacement(count, weights) {
+        const w = weights.slice();
+        const picks = [];
+        for (let i = 0; i < count; i++) {
+          let total = 0;
+          for (const x of w) total += x;
+          if (total <= 0) break;
+          const bytes = new Uint32Array(1);
+          crypto.getRandomValues(bytes);
+          const r = (bytes[0] / 0x100000000) * total;
+          let acc = 0, pickIdx = w.length - 1;
+          for (let j = 0; j < w.length; j++) {
+            acc += w[j];
+            if (r < acc) { pickIdx = j; break; }
+          }
+          picks.push(pickIdx);
+          w[pickIdx] = 0;
+        }
+        return picks;
+      }
+
+      function uniqueWeighted(count, min, max, getWeight) {
+        const range = max - min + 1;
+        const weights = new Array(range);
+        for (let i = 0; i < range; i++) {
+          const v = getWeight(min + i);
+          weights[i] = Math.max(v, 0.0001);
+        }
+        const idxs = weightedPickWithoutReplacement(count, weights);
+        return idxs.map(i => min + i);
+      }
+
+      function generateLocal(cfg, mode = 'uniform') {
+        let main;
+        const defaultMin = DEFAULTS.mainMin, defaultMax = DEFAULTS.mainMax;
+        const canWeight = stats && mode !== 'uniform' &&
+          cfg.mainMin === defaultMin && cfg.mainMax === defaultMax;
+
+        if (canWeight) {
+          if (mode === 'hot') {
+            main = uniqueWeighted(cfg.mainCount, cfg.mainMin, cfg.mainMax,
+              (n) => stats.main[String(n)].count);
+          } else {
+            main = uniqueWeighted(cfg.mainCount, cfg.mainMin, cfg.mainMax,
+              (n) => Math.max(stats.main[String(n)].drawsSince, 1));
+          }
+          main.sort((a, b) => a - b);
+        } else {
+          main = uniqueNumbers(cfg.mainCount, cfg.mainMin, cfg.mainMax).sort((a, b) => a - b);
+        }
+
+        let strong;
+        const canWeightStrong = stats && mode !== 'uniform' &&
+          cfg.strongMin === DEFAULTS.strongMin && cfg.strongMax === DEFAULTS.strongMax;
+        if (canWeightStrong) {
+          const getW = mode === 'hot'
+            ? (n) => stats.strong[String(n)].count
+            : (n) => Math.max(stats.strong[String(n)].drawsSince, 1);
+          strong = uniqueWeighted(1, cfg.strongMin, cfg.strongMax, getW)[0];
+        } else {
+          strong = randomInt(cfg.strongMin, cfg.strongMax);
+        }
+
+        return { main, strong, source: 'local', mode, time: Date.now() };
       }
 
       function parseFields(data) {
@@ -802,12 +1122,13 @@
         throw new Error('no_document');
       }
 
-      async function generateOne(cfg, useFirebase) {
-        if (!useFirebase) return generateLocal(cfg);
+      async function generateOne(cfg, useFirebase, mode) {
+        if (mode !== 'uniform') return generateLocal(cfg, mode);
+        if (!useFirebase) return generateLocal(cfg, 'uniform');
         try {
           return await fetchFromFirestore(cfg);
         } catch {
-          const r = generateLocal(cfg);
+          const r = generateLocal(cfg, 'uniform');
           r.fallback = true;
           return r;
         }
@@ -834,6 +1155,7 @@
           strongMax: parseInt(els.strongMax.value, 10),
         };
         const useFirebase = els.useFirebase.checked;
+        const mode = getPickMode();
 
         if (Object.values(cfg).some(v => !Number.isFinite(v))) {
           showError('אנא הזן ערכים תקינים בכל השדות.');
@@ -855,7 +1177,7 @@
         setLoading(true);
         try {
           const results = await Promise.all(
-            Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase))
+            Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase, mode))
           );
           renderTickets(results);
           results.forEach(r => addToHistory(r));
@@ -888,6 +1210,15 @@
           if (t.source === 'firebase') {
             badge.className = 'source-badge firebase';
             badge.innerHTML = '<span class="badge-dot"></span><span>Firebase</span>';
+          } else if (t.mode === 'hot') {
+            badge.className = 'source-badge local';
+            badge.style.background = 'rgba(239, 68, 68, 0.15)';
+            badge.style.color = '#fca5a5';
+            badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+            badge.innerHTML = '<span class="badge-dot"></span><span>חמים</span>';
+          } else if (t.mode === 'cold') {
+            badge.className = 'source-badge local';
+            badge.innerHTML = '<span class="badge-dot"></span><span>קרים</span>';
           } else {
             badge.className = 'source-badge local';
             badge.innerHTML = '<span class="badge-dot"></span><span>מקומי</span>';
@@ -917,6 +1248,18 @@
           strongRow.appendChild(strong);
           div.appendChild(strongRow);
 
+          const match = computeMatch(t);
+          if (match) {
+            const m = document.createElement('div');
+            m.className = `match-badge match-${match.bucket}`;
+            m.style.alignSelf = 'center';
+            m.textContent = match.text;
+            const wrap = document.createElement('div');
+            wrap.style.textAlign = 'center';
+            wrap.appendChild(m);
+            div.appendChild(wrap);
+          }
+
           const actions = document.createElement('div');
           actions.className = 'ticket-actions';
 
@@ -933,6 +1276,25 @@
           div.appendChild(actions);
           els.ticketsOut.appendChild(div);
         });
+      }
+
+      function computeMatch(t) {
+        if (!stats || !stats.recent || !stats.recent.length) return null;
+        const latest = stats.recent[0];
+        const latestMain = new Set(latest.main);
+        const mainHits = t.main.filter(n => latestMain.has(n)).length;
+        const strongHit = t.strong === latest.strong ? 1 : 0;
+        if (mainHits === 0 && !strongHit) {
+          return { bucket: '0', text: 'אין התאמה להגרלה האחרונה' };
+        }
+        const parts = [];
+        if (mainHits) parts.push(`${mainHits} רגילים`);
+        if (strongHit) parts.push('חזק');
+        const total = mainHits + strongHit;
+        let bucket = 'low';
+        if (total >= 4) bucket = 'high';
+        else if (total >= 2) bucket = 'mid';
+        return { bucket, text: `התאמה להגרלה האחרונה: ${parts.join(' + ')}` };
       }
 
       async function copyTicket(t) {

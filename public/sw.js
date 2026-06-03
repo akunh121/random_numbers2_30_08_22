@@ -1,5 +1,5 @@
-const CACHE = 'lotto-v9';
-const SHELL = ['./', './index.html', './manifest.json', './icon.svg'];
+const CACHE = 'lotto-v10';
+const SHELL = ['./', './index.html', './manifest.json', './icon.svg', './lotto-stats.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
