@@ -39,19 +39,36 @@ if not exist "%INSTALL_DIR%config.json" (
     echo.
     echo === GitHub Personal Access Token ===
     echo.
-    echo Create one at:
-    echo   https://github.com/settings/tokens?type=beta
+    echo A Windows dialog will open. Paste your token there.
     echo.
-    echo Required permissions:
+    echo If you don't have one yet, create it at:
+    echo   https://github.com/settings/tokens?type=beta
+    echo Required:
     echo   Repository access: Only akunh121/random_numbers2_30_08_22
     echo   Permissions:       Contents = Read and write
     echo.
-    set /p "TOKEN=Paste your token (github_pat_...): "
+    pause
+
+    REM Pop up a real Windows InputBox via PowerShell.
+    set "TOKEN="
+    for /f "usebackq delims=" %%t in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "Add-Type -AssemblyName Microsoft.VisualBasic; ^
+         $msg = 'Paste your GitHub Personal Access Token below.' + [Environment]::NewLine + [Environment]::NewLine + 'Required permissions on this repo:' + [Environment]::NewLine + '  Contents -> Read and write' + [Environment]::NewLine + [Environment]::NewLine + 'Create one at https://github.com/settings/tokens?type=beta'; ^
+         [Microsoft.VisualBasic.Interaction]::InputBox($msg, 'Lotto Updater - GitHub Token', '')"`) do set "TOKEN=%%t"
+
+    REM Fallback to console prompt if PowerShell failed or the user cancelled.
+    if "!TOKEN!"=="" (
+        echo.
+        echo Dialog cancelled or unavailable. Falling back to console input.
+        set /p "TOKEN=Paste your token (github_pat_...): "
+    )
+
     if "!TOKEN!"=="" (
         echo [X] No token provided.
         pause
         exit /b 1
     )
+
     (
         echo {
         echo   "github_token": "!TOKEN!"
