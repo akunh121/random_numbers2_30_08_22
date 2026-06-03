@@ -23,6 +23,7 @@ FILES = [
     'uninstall.bat',
     'update_local.bat',
     'update_test.bat',
+    'watch_log.bat',
     'update_local.py',
     'get-token.ps1',
     'run_hidden.vbs',
