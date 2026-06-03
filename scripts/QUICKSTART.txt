@@ -1,0 +1,67 @@
+================================================
+ LOTTO UPDATER — QUICKSTART
+================================================
+
+WHAT THIS DOES
+--------------
+A small Python daemon that runs on your 24/7 Windows machine.
+Every Tuesday, Thursday and Saturday at 23:55 it downloads the
+latest Israeli Lotto results from pais.co.il, rebuilds the stats,
+and pushes everything straight to your GitHub repo.
+
+The website at https://akunh121.github.io/random_numbers2_30_08_22/
+then picks up the new data automatically.
+
+
+SETUP IN 3 STEPS
+----------------
+1. Extract this folder to a stable location.
+   Example: C:\Users\YourName\Documents\lotto-updater
+
+2. Install Python 3 if you don't have it.
+   https://python.org
+   IMPORTANT: tick "Add Python to PATH" during install.
+
+3. Double-click setup.bat
+   When prompted, paste your GitHub Personal Access Token.
+   Create one at: https://github.com/settings/tokens?type=beta
+   Required permissions:
+     - Repository: Only akunh121/random_numbers2_30_08_22
+     - Permissions: Contents -> Read and write
+
+Setup will:
+  - Save the token to config.json (alongside the scripts)
+  - Run a test update to verify the connection
+  - Schedule the daemon to start at every Windows login
+  - Start the daemon immediately
+
+Done!
+
+
+WHAT'S IN THIS FOLDER
+---------------------
+setup.bat                  - one-time installer (run this)
+uninstall.bat              - removes the scheduled task
+update_test.bat            - manual test run (one-shot)
+update_local.bat           - daemon launcher (used by Task Scheduler)
+update_local.py            - the Python daemon itself
+README_LOCAL_UPDATER.md    - full documentation
+config.json                - created by setup.bat (your token)
+update_local.log           - created by the daemon (run history)
+
+
+CHANGING THE SCHEDULE
+---------------------
+Edit the top of update_local.py:
+
+  SCHEDULE_DAYS = {1, 3, 5}   # Tue, Thu, Sat (0=Mon, 6=Sun)
+  SCHEDULE_HOUR = 23
+  SCHEDULE_MIN  = 55
+
+Then restart: Task Scheduler -> right-click "LottoUpdaterDaemon"
+-> End, then -> Run.
+
+
+TROUBLESHOOTING
+---------------
+See README_LOCAL_UPDATER.md
