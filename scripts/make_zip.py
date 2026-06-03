@@ -24,10 +24,11 @@ FILES = [
     'update_local.bat',
     'update_test.bat',
     'update_local.py',
+    'get-token.ps1',
     'README_LOCAL_UPDATER.md',
     'QUICKSTART.txt',
 ]
-WINDOWS_TEXT_SUFFIXES = {'.bat', '.txt', '.md', '.json', '.py'}
+WINDOWS_TEXT_SUFFIXES = {'.bat', '.txt', '.md', '.json', '.py', '.ps1'}
 
 
 def main() -> None:

@@ -4,7 +4,21 @@ setlocal EnableDelayedExpansion
 set "INSTALL_DIR=%~dp0"
 set "DISPLAY_DIR=%INSTALL_DIR:~0,-1%"
 set "TASK_NAME=LottoUpdaterDaemon"
+set "EXITCODE=0"
 
+cd /d "%INSTALL_DIR%"
+
+call :main
+
+echo.
+echo ============================================
+echo   Press any key to close this window.
+echo ============================================
+pause >nul
+exit /b %EXITCODE%
+
+
+:main
 echo ============================================
 echo   Lotto Updater - Setup
 echo ============================================
@@ -19,54 +33,52 @@ if errorlevel 1 (
     echo [X] Python is not installed or not on PATH.
     echo.
     echo Download Python 3 from https://python.org
-    echo During install, tick "Add Python to PATH".
+    echo During install, TICK "Add Python to PATH".
     echo Then run setup.bat again.
-    echo.
-    pause
-    exit /b 1
+    set "EXITCODE=1"
+    exit /b
 )
 for /f "tokens=*" %%v in ('python --version') do echo [OK] Found: %%v
 echo.
 
 REM ----- 2. GitHub token -----
+set "NEED_TOKEN=1"
 if exist "%INSTALL_DIR%config.json" (
     echo config.json already exists in this folder.
+    set "REUSE="
     set /p "REUSE=Reuse the existing token? [Y/n]: "
+    if /i not "!REUSE!"=="N" set "NEED_TOKEN=0"
     if /i "!REUSE!"=="N" del /q "%INSTALL_DIR%config.json"
 )
 
-if not exist "%INSTALL_DIR%config.json" (
+if "!NEED_TOKEN!"=="1" (
     echo.
     echo === GitHub Personal Access Token ===
     echo.
-    echo A Windows dialog will open. Paste your token there.
-    echo.
-    echo If you don't have one yet, create it at:
+    echo A Windows dialog will open now. Paste your token there.
+    echo If you do not have one, create it first at:
     echo   https://github.com/settings/tokens?type=beta
-    echo Required:
-    echo   Repository access: Only akunh121/random_numbers2_30_08_22
-    echo   Permissions:       Contents = Read and write
+    echo Required: Contents = Read and write on the lotto repo.
     echo.
     pause
 
-    REM Pop up a real Windows InputBox via PowerShell.
     set "TOKEN="
-    for /f "usebackq delims=" %%t in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Add-Type -AssemblyName Microsoft.VisualBasic; ^
-         $msg = 'Paste your GitHub Personal Access Token below.' + [Environment]::NewLine + [Environment]::NewLine + 'Required permissions on this repo:' + [Environment]::NewLine + '  Contents -> Read and write' + [Environment]::NewLine + [Environment]::NewLine + 'Create one at https://github.com/settings/tokens?type=beta'; ^
-         [Microsoft.VisualBasic.Interaction]::InputBox($msg, 'Lotto Updater - GitHub Token', '')"`) do set "TOKEN=%%t"
-
-    REM Fallback to console prompt if PowerShell failed or the user cancelled.
-    if "!TOKEN!"=="" (
-        echo.
-        echo Dialog cancelled or unavailable. Falling back to console input.
-        set /p "TOKEN=Paste your token (github_pat_...): "
+    if exist "%INSTALL_DIR%get-token.ps1" (
+        for /f "usebackq delims=" %%t in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_DIR%get-token.ps1"`) do set "TOKEN=%%t"
     )
 
     if "!TOKEN!"=="" (
-        echo [X] No token provided.
-        pause
-        exit /b 1
+        echo.
+        echo Dialog cancelled or PowerShell unavailable.
+        echo Enter the token here instead:
+        set /p "TOKEN=Token: "
+    )
+
+    if "!TOKEN!"=="" (
+        echo.
+        echo [X] No token provided. Aborting.
+        set "EXITCODE=1"
+        exit /b
     )
 
     (
@@ -74,59 +86,54 @@ if not exist "%INSTALL_DIR%config.json" (
         echo   "github_token": "!TOKEN!"
         echo }
     ) > "%INSTALL_DIR%config.json"
-    echo [OK] Saved to config.json
+    echo [OK] Token saved to config.json
 )
 echo.
 
 REM ----- 3. One-shot test -----
-echo === Testing connection (one-shot run) ===
+echo === Test run ===
 echo.
-pushd "%INSTALL_DIR%"
-python update_local.py --once
+python "%INSTALL_DIR%update_local.py" --once
 set "TESTRC=%errorlevel%"
-popd
 echo.
-
 if not "%TESTRC%"=="0" (
-    echo [X] Test run failed (exit code %TESTRC%).
-    echo     Fix the error above (most often a wrong token^) and run
-    echo     setup.bat again.
-    pause
-    exit /b 1
+    echo [X] Test failed (exit code %TESTRC%).
+    echo     Fix the error above - usually a wrong or expired token.
+    echo     Delete config.json and run setup.bat again to re-enter.
+    set "EXITCODE=1"
+    exit /b
 )
-
-echo [OK] Test successful.
+echo [OK] Test passed.
 echo.
 
 REM ----- 4. Schedule the daemon at logon -----
 echo === Creating scheduled task "%TASK_NAME%" ===
-
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 schtasks /create /tn "%TASK_NAME%" /tr "\"%INSTALL_DIR%update_local.bat\"" /sc ONLOGON /rl HIGHEST /f
 if errorlevel 1 (
-    echo [X] Failed to create the scheduled task.
-    pause
-    exit /b 1
+    echo [X] Failed to create scheduled task.
+    set "EXITCODE=1"
+    exit /b
 )
-echo [OK] Task created. It will start every time you log in.
+echo [OK] Task created. It will run on every login.
 echo.
 
-REM ----- 5. Start it now -----
+REM ----- 5. Start the daemon now -----
 echo === Starting the daemon now ===
 schtasks /run /tn "%TASK_NAME%"
-echo [OK] Daemon kicked off.
+echo [OK] Daemon started in the background.
 echo.
 
 echo ============================================
 echo   DONE
 echo ============================================
 echo.
-echo Schedule:   Tue / Thu / Sat at 23:55 (local time)
+echo Schedule:   Tue / Thu / Sat at 23:55 local time
 echo Log file:   %INSTALL_DIR%update_local.log
 echo Test again: double-click update_test.bat
 echo Uninstall:  double-click uninstall.bat
 echo.
-echo Tip: watch the log live with:
+echo Tip - watch the log live:
 echo   powershell -command "Get-Content '%INSTALL_DIR%update_local.log' -Wait -Tail 20"
-echo.
-pause
+
+exit /b
