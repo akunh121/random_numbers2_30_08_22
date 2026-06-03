@@ -508,6 +508,79 @@
     .match-badge.match-mid { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
     .match-badge.match-high { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
 
+    .combos-header {
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
+    }
+    .combos-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+    .combos-mode-toggle { display: flex; gap: 6px; }
+    .combos-mode-toggle label {
+      cursor: pointer; padding: 6px 14px; border-radius: 999px;
+      font-size: 13px; font-weight: 600; user-select: none;
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      transition: var(--transition);
+    }
+    .combos-mode-toggle input { display: none; }
+    .combos-mode-toggle label:has(input:checked) {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.5);
+      color: #c7d2fe;
+    }
+
+    .combos-disclaimer {
+      font-size: 11px; color: var(--text-muted); margin-bottom: 14px;
+      padding: 8px 12px; background: rgba(255,255,255,0.03);
+      border-radius: var(--radius-sm); border: 1px dashed var(--border);
+    }
+
+    .combos-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .combos-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 13px; direction: ltr;
+    }
+    .combos-table th, .combos-table td {
+      padding: 8px 6px; text-align: center;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .combos-table th {
+      color: var(--text-muted); font-weight: 600; font-size: 11px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .combos-table tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .combos-table tbody tr:hover { background: rgba(255,255,255,0.04); }
+    .combos-table td.rank { font-weight: 700; color: var(--text-muted); }
+    .combos-table td.mains span {
+      display: inline-block; min-width: 22px; padding: 2px 5px;
+      background: rgba(255,255,255,0.07); border-radius: 5px;
+      font-weight: 600; margin: 0 1px;
+    }
+    .combos-table td.strong-cell span {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: rgba(245, 158, 11, 0.2); color: #fcd34d; font-weight: 700;
+    }
+    .combos-table td.score {
+      color: var(--text-muted); font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .combos-table td.use-btn-cell { padding: 6px 4px; }
+    .combos-use-btn {
+      font-family: inherit; font-size: 11px; font-weight: 600;
+      background: rgba(99, 102, 241, 0.15); color: #c7d2fe;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 4px 10px; border-radius: 999px; cursor: pointer;
+      transition: var(--transition);
+    }
+    .combos-use-btn:hover { background: rgba(99, 102, 241, 0.25); }
+
+    @media (max-width: 480px) {
+      .combos-table { font-size: 12px; }
+      .combos-table td.mains span { min-width: 18px; padding: 1px 3px; font-size: 11px; }
+    }
+
     footer { text-align: center; margin-top: 32px; color: var(--text-muted); font-size: 13px; }
 
     .toast {
@@ -707,6 +780,33 @@
       </div>
     </section>
 
+    <section class="card" id="combosCard" style="display: none;">
+      <div class="combos-header">
+        <h2>טבלת אפשרויות</h2>
+        <div class="combos-mode-toggle" role="radiogroup" aria-label="מצב טבלה">
+          <label><input type="radio" name="combosMode" value="hot" checked><span>חמים</span></label>
+          <label><input type="radio" name="combosMode" value="cold"><span>קרים</span></label>
+        </div>
+      </div>
+      <div class="combos-disclaimer">
+        20 הצירופים בעלי הציון הגבוה ביותר לפי הנתונים ההיסטוריים. "ציון" = סכום ההופעות ההיסטוריות של 6 הרגילים + החזק. <strong>אין לזה ערך חיזוי מתמטי</strong> — כל הגרלה היא בלתי תלויה.
+      </div>
+      <div class="combos-table-wrap">
+        <table class="combos-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>6 מספרים</th>
+              <th>חזק</th>
+              <th>ציון</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="combosTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card">
       <div class="history-header">
         <h2>היסטוריה</h2>
@@ -795,6 +895,9 @@
       hotList: document.getElementById('hotList'),
       coldList: document.getElementById('coldList'),
       strongList: document.getElementById('strongList'),
+      combosCard: document.getElementById('combosCard'),
+      combosTbody: document.getElementById('combosTbody'),
+      combosModeRadios: document.querySelectorAll('input[name="combosMode"]'),
     };
 
     let stats = null;
@@ -812,8 +915,85 @@
         stats = await res.json();
         renderRealDraw();
         renderStats();
+        renderCombos();
       } catch {}
     }
+
+    function combinations(arr, k) {
+      const out = [];
+      const cur = [];
+      function rec(start) {
+        if (cur.length === k) { out.push(cur.slice()); return; }
+        for (let i = start; i <= arr.length - (k - cur.length); i++) {
+          cur.push(arr[i]);
+          rec(i + 1);
+          cur.pop();
+        }
+      }
+      rec(0);
+      return out;
+    }
+
+    function renderCombos() {
+      if (!stats) return;
+      const mode = (Array.from(els.combosModeRadios).find(r => r.checked) || {}).value || 'hot';
+      const mainScore = {};
+      for (let n = 1; n <= 37; n++) {
+        const s = stats.main[String(n)];
+        mainScore[n] = mode === 'hot' ? s.count : Math.max(s.drawsSince, 1);
+      }
+      const strongScore = {};
+      for (let n = 1; n <= 7; n++) {
+        const s = stats.strong[String(n)];
+        strongScore[n] = mode === 'hot' ? s.count : Math.max(s.drawsSince, 1);
+      }
+
+      const sortedMain = Array.from({ length: 37 }, (_, i) => i + 1)
+        .sort((a, b) => mainScore[b] - mainScore[a]);
+      const sortedStrong = Array.from({ length: 7 }, (_, i) => i + 1)
+        .sort((a, b) => strongScore[b] - strongScore[a]);
+
+      const topMains = sortedMain.slice(0, 10);
+      const mainCombos = combinations(topMains, 6).map(c => {
+        c.sort((a, b) => a - b);
+        const sum = c.reduce((s, n) => s + mainScore[n], 0);
+        return { main: c, sum };
+      }).sort((a, b) => b.sum - a.sum).slice(0, 20);
+
+      const bestStrong = sortedStrong[0];
+      const bestStrongScore = strongScore[bestStrong];
+      const ranked = mainCombos.map(c => ({
+        main: c.main,
+        strong: bestStrong,
+        score: c.sum + bestStrongScore,
+      }));
+
+      const maxScore = ranked[0] ? ranked[0].score : 1;
+
+      els.combosCard.style.display = 'block';
+      els.combosTbody.innerHTML = '';
+      ranked.forEach((c, idx) => {
+        const tr = document.createElement('tr');
+        const pct = Math.round((c.score / maxScore) * 100);
+        const mainsHtml = c.main.map(n => `<span>${n}</span>`).join('');
+        tr.innerHTML = `
+          <td class="rank">${idx + 1}</td>
+          <td class="mains">${mainsHtml}</td>
+          <td class="strong-cell"><span>${c.strong}</span></td>
+          <td class="score">${pct}</td>
+          <td class="use-btn-cell"><button class="combos-use-btn" type="button">הגרל זה</button></td>
+        `;
+        tr.querySelector('button').addEventListener('click', () => {
+          const ticket = { main: c.main.slice(), strong: c.strong, source: 'local', mode: 'table', time: Date.now() };
+          renderTickets([ticket]);
+          addToHistory(ticket);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        els.combosTbody.appendChild(tr);
+      });
+    }
+
+    els.combosModeRadios.forEach(r => r.addEventListener('change', renderCombos));
 
     function renderRealDraw() {
       if (!stats || !stats.recent || !stats.recent.length) return;
@@ -1219,6 +1399,12 @@
           } else if (t.mode === 'cold') {
             badge.className = 'source-badge local';
             badge.innerHTML = '<span class="badge-dot"></span><span>קרים</span>';
+          } else if (t.mode === 'table') {
+            badge.className = 'source-badge local';
+            badge.style.background = 'rgba(99, 102, 241, 0.15)';
+            badge.style.color = '#c7d2fe';
+            badge.style.borderColor = 'rgba(99, 102, 241, 0.4)';
+            badge.innerHTML = '<span class="badge-dot"></span><span>מטבלה</span>';
           } else {
             badge.className = 'source-badge local';
             badge.innerHTML = '<span class="badge-dot"></span><span>מקומי</span>';
