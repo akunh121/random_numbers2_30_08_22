@@ -45,3 +45,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Built Windows installer (run scripts/make_zip.py to regenerate)
+lotto-updater-windows.zip
