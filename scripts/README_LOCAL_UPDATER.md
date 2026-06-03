@@ -65,22 +65,39 @@ Done. 3 file(s) changed.
 If it shows `unchanged` for all files — that means GitHub already has the
 latest, which is also a success.
 
-### 5. Schedule it daily with Task Scheduler
+### 5. Schedule it for the days of Lotto draws
+
+Israeli Lotto draws are on **Tuesday, Thursday, and Saturday**, around
+22:00. We'll run the updater at **23:55** — about two hours after the
+draw, by which time pais.co.il has published the results.
 
 1. Press **Win + R**, type `taskschd.msc`, Enter
-2. Right-click **Task Scheduler Library** → **Create Basic Task**
-3. **Name**: Lotto updater
-4. **Trigger**: Daily → start time `07:30` (after the late draws are
-   published)
-5. **Action**: Start a program
-6. **Program/script**: `C:\lotto-updater\update_local.bat`
-   (the full path to the .bat file)
-7. **Start in**: `C:\lotto-updater\` (folder containing the script)
-8. Finish
+2. Right-click **Task Scheduler Library** → **Create Task** (not "Basic")
+3. **General** tab:
+   - **Name**: `Lotto updater`
+   - Check **Run whether user is logged on or not**
+   - Check **Run with highest privileges**
+4. **Triggers** tab → **New**:
+   - **Begin the task**: On a schedule
+   - **Settings**: **Weekly**, recur every **1** week
+   - Days: check **Tuesday**, **Thursday**, **Saturday**
+   - **Start**: today at **23:55:00**
+   - Enabled ✓ → OK
+5. **Actions** tab → **New**:
+   - **Action**: Start a program
+   - **Program/script**: `C:\lotto-updater\update_local.bat`
+   - **Start in (optional)**: `C:\lotto-updater\`
+   - OK
+6. **Conditions** tab:
+   - Uncheck **Start the task only if the computer is on AC power**
+     (otherwise it won't fire on a laptop running on battery)
+7. **Settings** tab:
+   - Check **If the task fails, restart every: 10 minutes, attempt 3 times**
+8. OK → enter Windows password if asked
 
 Right-click the new task → **Run** to verify it works on demand. A
-`update_local.log` file will appear next to the script with the full output of
-each run.
+`update_local.log` file will appear next to the script with the full output
+of each run.
 
 ## Troubleshooting
 
