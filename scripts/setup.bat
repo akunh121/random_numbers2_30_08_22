@@ -106,22 +106,22 @@ if not "%TESTRC%"=="0" (
 echo [OK] Test passed.
 echo.
 
-REM ----- 4. Schedule the daemon at logon -----
+REM ----- 4. Schedule the daemon at logon (hidden via VBS) -----
 echo === Creating scheduled task "%TASK_NAME%" ===
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
-schtasks /create /tn "%TASK_NAME%" /tr "\"%INSTALL_DIR%update_local.bat\"" /sc ONLOGON /rl HIGHEST /f
+schtasks /create /tn "%TASK_NAME%" /tr "wscript.exe \"%INSTALL_DIR%run_hidden.vbs\"" /sc ONLOGON /rl HIGHEST /f
 if errorlevel 1 (
     echo [X] Failed to create scheduled task.
     set "EXITCODE=1"
     exit /b
 )
-echo [OK] Task created. It will run on every login.
+echo [OK] Task created. It will start hidden on every login.
 echo.
 
-REM ----- 5. Start the daemon now -----
+REM ----- 5. Start the daemon now (hidden) -----
 echo === Starting the daemon now ===
 schtasks /run /tn "%TASK_NAME%"
-echo [OK] Daemon started in the background.
+echo [OK] Daemon started silently in the background.
 echo.
 
 echo ============================================

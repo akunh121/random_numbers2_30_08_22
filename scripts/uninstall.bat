@@ -9,8 +9,13 @@ echo ============================================
 echo.
 
 echo Stopping any running daemon...
-taskkill /f /im python.exe /fi "WINDOWTITLE eq update_local*" >nul 2>&1
-taskkill /f /im cmd.exe /fi "WINDOWTITLE eq update_local.bat*" >nul 2>&1
+REM Kill the hidden VBS-launched chain: wscript -> cmd (bat) -> python
+REM We cannot match on window title because everything runs hidden, so
+REM kill by parent: any python.exe whose command line points at this
+REM folder's update_local.py is ours.
+for /f "tokens=*" %%p in ('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*update_local.py*' } | Select-Object -ExpandProperty ProcessId"') do (
+    taskkill /f /pid %%p >nul 2>&1
+)
 
 echo Removing scheduled task "%TASK_NAME%"...
 schtasks /delete /tn "%TASK_NAME%" /f
