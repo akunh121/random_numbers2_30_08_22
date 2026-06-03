@@ -527,6 +527,27 @@
 
     .stats-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
 
+    .stats-update {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      padding: 10px 12px; margin-bottom: 16px;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px dashed rgba(99, 102, 241, 0.3);
+      border-radius: var(--radius-sm);
+      font-size: 12px; color: var(--text-muted);
+    }
+    .stats-update .update-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-right: auto; }
+    .stats-update a, .stats-update button {
+      font-family: inherit; font-size: 12px; font-weight: 600;
+      padding: 5px 12px; border-radius: 999px; cursor: pointer;
+      background: rgba(99, 102, 241, 0.2); color: #c7d2fe;
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
+      transition: var(--transition);
+    }
+    .stats-update a:hover, .stats-update button:hover {
+      background: rgba(99, 102, 241, 0.3);
+    }
+
     .stats-section { margin-bottom: 18px; }
     .stats-section:last-child { margin-bottom: 0; }
     .stats-section-title {
@@ -850,6 +871,16 @@
       <div class="stats-body" id="statsBody">
         <div class="stats-meta" id="statsMeta"></div>
 
+        <div class="stats-update">
+          <span id="statsUpdateInfo"></span>
+          <div class="update-actions">
+            <a href="https://www.pais.co.il/Lotto/lotto_resultsDownload.aspx" target="_blank" rel="noopener">⬇ הורד CSV</a>
+            <button type="button" id="uploadCsvBtn">📂 העלה</button>
+            <button type="button" id="resetStatsBtn" style="background: transparent; color: var(--text-muted); border-color: var(--border);">איפוס</button>
+          </div>
+          <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display: none;">
+        </div>
+
         <div class="stats-section">
           <div class="stats-section-title">תדירות מספרים רגילים (1–37)</div>
           <div class="heatmap" id="mainHeatmap"></div>
@@ -990,7 +1021,13 @@
       combosCard: document.getElementById('combosCard'),
       combosTbody: document.getElementById('combosTbody'),
       combosModeRadios: document.querySelectorAll('input[name="combosMode"]'),
+      statsUpdateInfo: document.getElementById('statsUpdateInfo'),
+      uploadCsvBtn: document.getElementById('uploadCsvBtn'),
+      csvFileInput: document.getElementById('csvFileInput'),
+      resetStatsBtn: document.getElementById('resetStatsBtn'),
     };
+
+    const STATS_OVERRIDE_KEY = 'lotto_stats_override_v1';
 
     const themeBtn = document.getElementById('themeBtn');
     initTheme();
@@ -1027,6 +1064,21 @@
 
     async function loadStats() {
       try {
+        const override = localStorage.getItem(STATS_OVERRIDE_KEY);
+        if (override) {
+          const parsed = JSON.parse(override);
+          if (parsed && parsed.data) {
+            stats = parsed.data;
+            stats._overrideUploadedAt = parsed.uploadedAt;
+            renderNextDraw();
+            renderRealDraw();
+            renderStats();
+            renderCombos();
+            return;
+          }
+        }
+      } catch {}
+      try {
         const res = await fetch('./lotto-stats.json', { cache: 'force-cache' });
         if (!res.ok) return;
         stats = await res.json();
@@ -1035,6 +1087,116 @@
         renderStats();
         renderCombos();
       } catch {}
+    }
+
+    function processCsvText(text) {
+      const lines = text.split(/\r?\n/);
+      const draws = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        if (cols.length < 9) continue;
+        const drawNum = parseInt(cols[0], 10);
+        const date = (cols[1] || '').trim();
+        const mains = [];
+        for (let j = 2; j <= 7; j++) mains.push(parseInt(cols[j], 10));
+        const strong = parseInt(cols[8], 10);
+        if (!Number.isFinite(drawNum) || !date) continue;
+        if (!mains.every(n => Number.isFinite(n) && n >= 1 && n <= 37)) continue;
+        if (!Number.isFinite(strong) || strong < 1 || strong > 7) continue;
+        if (new Set(mains).size !== 6) continue;
+        const parts = date.split('/');
+        if (parts.length !== 3) continue;
+        const dt = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+        if (isNaN(dt.getTime())) continue;
+        mains.sort((a, b) => a - b);
+        draws.push({ draw: drawNum, date, dt: dt.getTime(), main: mains, strong });
+      }
+      if (draws.length === 0) return null;
+      draws.sort((a, b) => a.dt - b.dt);
+      const total = draws.length;
+      const latest = draws[total - 1];
+
+      const mainCount = {}, strongCount = {}, mainLast = {}, strongLast = {};
+      for (let n = 1; n <= 37; n++) { mainCount[n] = 0; mainLast[n] = null; }
+      for (let n = 1; n <= 7; n++) { strongCount[n] = 0; strongLast[n] = null; }
+
+      draws.forEach((d, idx) => {
+        d.main.forEach(m => {
+          mainCount[m]++;
+          mainLast[m] = { draw: d.draw, date: d.date, order: idx };
+        });
+        strongCount[d.strong]++;
+        strongLast[d.strong] = { draw: d.draw, date: d.date, order: idx };
+      });
+
+      const numEntry = (n, count, last) => ({
+        count: count[n],
+        lastDraw: last[n] ? last[n].draw : null,
+        lastDate: last[n] ? last[n].date : null,
+        drawsSince: last[n] ? (total - 1 - last[n].order) : null,
+      });
+
+      const mainStats = {};
+      for (let n = 1; n <= 37; n++) mainStats[String(n)] = numEntry(n, mainCount, mainLast);
+      const strongStats = {};
+      for (let n = 1; n <= 7; n++) strongStats[String(n)] = numEntry(n, strongCount, strongLast);
+
+      const recent = draws.slice(-50).reverse().map(d => ({
+        draw: d.draw, date: d.date, main: d.main, strong: d.strong,
+      }));
+
+      return {
+        totalDraws: total,
+        latestDraw: latest.draw,
+        firstDate: draws[0].date,
+        lastDate: latest.date,
+        main: mainStats,
+        strong: strongStats,
+        recent,
+        totalUniqueCombos: new Set(draws.map(d => d.main.join(',') + '|' + d.strong)).size,
+      };
+    }
+
+    async function readFileMaybeHebrew(file) {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      try {
+        const utf8 = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        return utf8;
+      } catch {
+        try {
+          return new TextDecoder('windows-1255').decode(bytes);
+        } catch {
+          return new TextDecoder('utf-8').decode(bytes);
+        }
+      }
+    }
+
+    async function handleCsvUpload(file) {
+      try {
+        const text = await readFileMaybeHebrew(file);
+        const newStats = processCsvText(text);
+        if (!newStats) {
+          showToast('הקובץ לא הכיל הגרלות תקינות');
+          return;
+        }
+        const payload = { uploadedAt: Date.now(), data: newStats };
+        localStorage.setItem(STATS_OVERRIDE_KEY, JSON.stringify(payload));
+        stats = newStats;
+        stats._overrideUploadedAt = payload.uploadedAt;
+        renderNextDraw();
+        renderRealDraw();
+        renderStats();
+        renderCombos();
+        showToast(`עודכן: ${newStats.totalDraws.toLocaleString('he-IL')} הגרלות, אחרון ${newStats.lastDate}`);
+      } catch (e) {
+        showToast('שגיאה בקריאת הקובץ');
+      }
+    }
+
+    function resetStatsOverride() {
+      localStorage.removeItem(STATS_OVERRIDE_KEY);
+      loadStats().then(() => showToast('חזרה לנתונים המובנים'));
     }
 
     function combinations(arr, k) {
@@ -1112,6 +1274,18 @@
     }
 
     els.combosModeRadios.forEach(r => r.addEventListener('change', renderCombos));
+
+    if (els.uploadCsvBtn) {
+      els.uploadCsvBtn.addEventListener('click', () => els.csvFileInput.click());
+      els.csvFileInput.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) handleCsvUpload(f);
+        e.target.value = '';
+      });
+    }
+    if (els.resetStatsBtn) {
+      els.resetStatsBtn.addEventListener('click', resetStatsOverride);
+    }
 
     const DRAW_DAYS = [2, 4, 6];
     const DAY_NAMES = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -1191,6 +1365,14 @@
       if (!stats) return;
       els.statsCard.style.display = 'block';
       els.statsMeta.textContent = `מבוסס על ${stats.totalDraws.toLocaleString('he-IL')} הגרלות · ${stats.firstDate} עד ${stats.lastDate}`;
+      if (els.statsUpdateInfo) {
+        if (stats._overrideUploadedAt) {
+          const d = new Date(stats._overrideUploadedAt);
+          els.statsUpdateInfo.textContent = `עדכון מקומי אחרון: ${d.toLocaleString('he-IL')}`;
+        } else {
+          els.statsUpdateInfo.textContent = 'נתונים מובנים. לרענון: הורד CSV מהפיס והעלה אותו.';
+        }
+      }
 
       const counts = Object.values(stats.main).map(v => v.count);
       const minC = Math.min(...counts);

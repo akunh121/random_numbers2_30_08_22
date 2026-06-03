@@ -21,18 +21,36 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download fresh lotto CSV from pais.co.il
+      - name: Download fresh lotto CSV
         run: |
-          set -euo pipefail
-          curl -sSf -A "Mozilla/5.0 (compatible; lotto-stats-updater)" \
-            -o public/lotto-history.csv.new \
-            https://www.pais.co.il/Lotto/lotto_resultsDownload.aspx
-          test -s public/lotto-history.csv.new
-          mv public/lotto-history.csv.new public/lotto-history.csv
+          set -uo pipefail
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          TARGET="https://www.pais.co.il/Lotto/lotto_resultsDownload.aspx"
+
+          urls=(
+            "$TARGET"
+            "https://api.allorigins.win/raw?url=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$TARGET")"
+            "https://api.codetabs.com/v1/proxy/?quest=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$TARGET")"
+            "https://corsproxy.io/?$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$TARGET")"
+          )
+
+          for url in "${urls[@]}"; do
+            echo "Trying: $url"
+            if curl -sSf --max-time 60 -A "$UA" -o public/lotto-history.csv.new "$url"; then
+              if [ -s public/lotto-history.csv.new ] && head -c 200 public/lotto-history.csv.new | grep -q ','; then
+                mv public/lotto-history.csv.new public/lotto-history.csv
+                echo "✓ Got CSV from: $url"
+                exit 0
+              fi
+            fi
+            rm -f public/lotto-history.csv.new
+          done
+
+          echo "All sources failed; keeping existing CSV."
+          exit 0
 
       - name: Scrape latest jackpot info
-        run: |
-          python3 scripts/scrape_jackpot.py || echo "Jackpot scrape failed; continuing"
+        run: python3 scripts/scrape_jackpot.py || true
 
       - name: Rebuild stats JSON
         run: python3 scripts/build_stats.py
