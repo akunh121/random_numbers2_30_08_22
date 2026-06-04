@@ -1618,7 +1618,30 @@
     els.statsToggle.addEventListener('click', toggleStats);
 
     let history = loadHistory();
+    const _prunedCount = pruneOldDrawHistory();
+    if (_prunedCount > 0) {
+      setTimeout(() => {
+        try { showToast(`איפסתי ${_prunedCount} ${_prunedCount === 1 ? 'טור' : 'טורים'} מהגרלה הקודמת`); } catch {}
+      }, 700);
+    }
     renderHistory();
+
+    function todayKey() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function pruneOldDrawHistory() {
+      if (!history || history.length === 0) return 0;
+      const tk = todayKey();
+      const before = history.length;
+      history = history.filter(h => h && h.targetDraw && h.targetDraw >= tk);
+      const removed = before - history.length;
+      if (removed > 0) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {}
+      }
+      return removed;
+    }
 
     onAuthStateChanged(auth, (user) => {
       if (!user) {
