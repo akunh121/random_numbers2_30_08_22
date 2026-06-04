@@ -1421,7 +1421,12 @@
       const dd = String(target.getDate()).padStart(2, '0');
       const mm = String(target.getMonth() + 1).padStart(2, '0');
       dateEl.textContent = `יום ${DAY_NAMES[target.getDay()]} · ${dd}/${mm}`;
-      countdownEl.textContent = formatCountdown(target, now);
+      const myCount = (typeof ticketsForUpcomingDraw === 'function')
+        ? ticketsForUpcomingDraw().length : 0;
+      const cd = formatCountdown(target, now);
+      countdownEl.innerHTML = myCount
+        ? `${cd} · <strong>${myCount} ${myCount === 1 ? 'טור שלך' : 'טורים שלך'}</strong> להגרלה זו`
+        : cd;
       if (stats && stats.jackpot && (stats.jackpot.firstPrize || stats.jackpot.firstPrizeDouble)) {
         const jp = stats.jackpot;
         const parts = [];
@@ -1827,6 +1832,43 @@
         }
       }
 
+      function targetDrawKey(now) {
+        const d = nextDrawDate(now || new Date());
+        if (!d) return null;
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+
+      function ticketKey(t) {
+        return t.main.slice().sort((a, b) => a - b).join(',') + '|' + t.strong;
+      }
+
+      function ticketsForUpcomingDraw() {
+        const key = targetDrawKey();
+        if (!key) return [];
+        return history.filter(h => h.targetDraw === key);
+      }
+
+      async function generateBatchUnique(cfg, useFirebase, mode) {
+        const drawKey = targetDrawKey();
+        const used = new Set(ticketsForUpcomingDraw().map(ticketKey));
+        const out = [];
+        for (let i = 0; i < cfg.tickets; i++) {
+          let ticket = null;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const cand = await generateOne(cfg, useFirebase, mode);
+            if (!used.has(ticketKey(cand))) { ticket = cand; break; }
+          }
+          if (!ticket) ticket = await generateOne(cfg, useFirebase, mode);
+          if (drawKey) ticket.targetDraw = drawKey;
+          used.add(ticketKey(ticket));
+          out.push(ticket);
+        }
+        return out;
+      }
+
       function setLoading(loading) {
         els.generate.disabled = loading;
         if (loading) {
@@ -1912,7 +1954,7 @@
           const animate = els.enableSound.checked;
           if (animate) playDrumRoll();
           const [results] = await Promise.all([
-            Promise.all(Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase, mode))),
+            generateBatchUnique(cfg, useFirebase, mode),
             animate ? delay(900) : Promise.resolve(),
           ]);
           renderTickets(results);
@@ -2167,6 +2209,7 @@
         history.unshift(entry);
         if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
         saveHistory();
+        try { renderNextDraw(); } catch {}
         renderHistory();
       }
 
