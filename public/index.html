@@ -1502,8 +1502,8 @@
       const dd = String(target.getDate()).padStart(2, '0');
       const mm = String(target.getMonth() + 1).padStart(2, '0');
       dateEl.textContent = `יום ${DAY_NAMES[target.getDay()]} · ${dd}/${mm}`;
-      const myCount = (typeof ticketsForUpcomingDraw === 'function')
-        ? ticketsForUpcomingDraw().length : 0;
+      let myCount = 0;
+      try { myCount = ticketsForUpcomingDraw().length; } catch {}
       const cd = formatCountdown(target, now);
       countdownEl.innerHTML = myCount
         ? `${cd} · <strong>${myCount} ${myCount === 1 ? 'טור שלך' : 'טורים שלך'}</strong> להגרלה זו`
