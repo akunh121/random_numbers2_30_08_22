@@ -897,6 +897,13 @@
             <div class="mode-desc">לא יצאו זמן</div>
           </div>
         </label>
+        <label class="pick-mode-opt">
+          <input type="radio" name="pickMode" value="mixed">
+          <div>
+            <div class="mode-label">הפתעה 🎲</div>
+            <div class="mode-desc">אחד מהשלושה</div>
+          </div>
+        </label>
       </div>
 
       <div class="actions">
@@ -1932,17 +1939,23 @@
         return history.filter(h => h.targetDraw === key);
       }
 
+      const MIXED_MODES = ['uniform', 'hot', 'cold'];
+      function pickRandomMode() {
+        return MIXED_MODES[randomInt(0, MIXED_MODES.length - 1)];
+      }
+
       async function generateBatchUnique(cfg, useFirebase, mode) {
         const drawKey = targetDrawKey();
         const used = new Set(ticketsForUpcomingDraw().map(ticketKey));
         const out = [];
         for (let i = 0; i < cfg.tickets; i++) {
+          const actualMode = mode === 'mixed' ? pickRandomMode() : mode;
           let ticket = null;
           for (let attempt = 0; attempt < 30; attempt++) {
-            const cand = await generateOne(cfg, useFirebase, mode);
+            const cand = await generateOne(cfg, useFirebase, actualMode);
             if (!used.has(ticketKey(cand))) { ticket = cand; break; }
           }
-          if (!ticket) ticket = await generateOne(cfg, useFirebase, mode);
+          if (!ticket) ticket = await generateOne(cfg, useFirebase, actualMode);
           if (drawKey) ticket.targetDraw = drawKey;
           used.add(ticketKey(ticket));
           out.push(ticket);
