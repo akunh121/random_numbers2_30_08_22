@@ -27,6 +27,39 @@ echo Install folder: %DISPLAY_DIR%
 echo Schedule:       Tuesday / Thursday / Saturday at 23:55
 echo.
 
+REM ----- 0. Detect and remove a previous installation -----
+set "OLD_DIR="
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_DIR%find-existing.ps1"`) do set "OLD_DIR=%%i"
+
+if defined OLD_DIR (
+    echo Existing installation detected at:
+    echo   !OLD_DIR!
+    echo.
+
+    REM Reuse the existing GitHub token unless we already have one in
+    REM the new folder.
+    if exist "!OLD_DIR!config.json" if not exist "%INSTALL_DIR%config.json" (
+        if /i not "!OLD_DIR!"=="%INSTALL_DIR%" (
+            echo Importing GitHub token from the previous install ...
+            copy /Y "!OLD_DIR!config.json" "%INSTALL_DIR%config.json" >nul
+            if errorlevel 1 (
+                echo [!] Could not copy config.json. You may need to re-enter the token.
+            ) else (
+                echo [OK] Token imported.
+            )
+        )
+    )
+
+    echo Stopping the running daemon ...
+    schtasks /end /tn "%TASK_NAME%" >nul 2>&1
+    powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*update_local.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+
+    echo Removing the old scheduled task ...
+    schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
+    echo [OK] Old installation cleaned up.
+    echo.
+)
+
 REM ----- 1. Check Python -----
 python --version >nul 2>&1
 if errorlevel 1 (

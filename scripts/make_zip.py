@@ -26,6 +26,7 @@ FILES = [
     'watch_log.bat',
     'update_local.py',
     'get-token.ps1',
+    'find-existing.ps1',
     'run_hidden.vbs',
     'README_LOCAL_UPDATER.md',
     'QUICKSTART.txt',
