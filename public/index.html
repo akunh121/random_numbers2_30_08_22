@@ -2525,10 +2525,9 @@
         els.strongMin.value = DEFAULTS.strongMin;
         els.strongMax.value = DEFAULTS.strongMax;
         els.useFirebase.checked = true;
+        const uniformRadio = document.querySelector('input[name="pickMode"][value="uniform"]');
+        if (uniformRadio) uniformRadio.checked = true;
         clearError();
-        els.ticketsOut.innerHTML = '';
-        els.ticketsOut.appendChild(els.emptyTickets);
-        els.emptyTickets.style.display = 'block';
       }
 
       function clearHistory() {
