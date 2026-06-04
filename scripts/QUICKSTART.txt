@@ -50,6 +50,17 @@ config.json                - created by setup.bat (your token)
 update_local.log           - created by the daemon (run history)
 
 
+AUTOMATIC UPDATES
+-----------------
+The script self-updates from GitHub on every (re)launch and before
+every scheduled run. You will NEVER have to download a new version
+manually - if I push a fix or a feature, the daemon picks it up the
+next time it wakes up.
+
+To disable self-update, add this to config.json:
+  "self_update": false
+
+
 CHANGING THE SCHEDULE
 ---------------------
 Edit the top of update_local.py:

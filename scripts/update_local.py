@@ -55,6 +55,7 @@ REPO = 'akunh121/random_numbers2_30_08_22'
 BRANCH = 'claude/website-app-development-68IT9'
 PAIS_CSV = 'https://www.pais.co.il/Lotto/lotto_resultsDownload.aspx'
 PAIS_HOME = 'https://www.pais.co.il/lotto/'
+SELF_URL = f'https://raw.githubusercontent.com/{REPO}/{BRANCH}/scripts/update_local.py'
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0 Safari/537.36')
 
@@ -221,7 +222,55 @@ def push_file(path: str, content: bytes, message: str) -> bool:
     return True
 
 
+_self_updated = False
+
+
+def self_update() -> bool:
+    """Pull the latest version of this script from GitHub. Returns True if
+    the file on disk was replaced — caller should exit so the bat wrapper
+    relaunches us with the new code."""
+    cfg = Path(__file__).resolve().parent / 'config.json'
+    if cfg.exists():
+        try:
+            data = json.loads(cfg.read_text(encoding='utf-8'))
+            if data.get('self_update', True) is False:
+                return False
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    self_path = Path(__file__).resolve()
+    try:
+        latest = http(SELF_URL)
+    except Exception as e:
+        print(f'  self-update check failed: {e}')
+        return False
+    if not latest or len(latest) < 1000:
+        return False
+
+    current = self_path.read_bytes()
+    if latest == current:
+        return False
+
+    try:
+        compile(latest, str(self_path), 'exec')
+    except SyntaxError as e:
+        print(f'  [self-update] new version has syntax error, keeping current: {e}')
+        return False
+
+    backup = self_path.with_suffix('.py.bak')
+    backup.write_bytes(current)
+    self_path.write_bytes(latest)
+    print(f'  [self-update] replaced {self_path.name} (backup: {backup.name})')
+    global _self_updated
+    _self_updated = True
+    return True
+
+
 def do_update() -> int:
+    if self_update():
+        print('Exiting so the launcher can restart with the new code.')
+        return 0
+
     print('Downloading CSV from pais.co.il ...')
     csv_bytes = http(PAIS_CSV)
     print(f'  got {len(csv_bytes):,} bytes')
@@ -288,6 +337,10 @@ def daemon() -> int:
     days_he = ' / '.join(DAY_NAMES_HE[d] for d in sorted(SCHEDULE_DAYS))
     print(f'Daemon started. Schedule (local time): {days_he} at '
           f'{SCHEDULE_HOUR:02d}:{SCHEDULE_MIN:02d}.')
+    # Pick up new versions on every (re)start — fast no-op if already current.
+    if self_update():
+        print('Self-updated on startup. Exiting so the .bat relaunches.')
+        return 0
     while True:
         try:
             now = datetime.now()
@@ -296,6 +349,9 @@ def daemon() -> int:
             if wait <= 0:
                 print(f'\n=== {now:%Y-%m-%d %H:%M:%S} — running scheduled update ===')
                 run_once_safe()
+                if _self_updated:
+                    print('Self-updated. Exiting so the .bat wrapper relaunches with the new code.')
+                    return 0
                 time.sleep(POST_RUN_SLEEP)
                 continue
             sleep_for = min(wait, MAX_SLEEP)
