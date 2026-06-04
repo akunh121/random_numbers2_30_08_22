@@ -480,11 +480,12 @@
     }
     .next-draw-date { font-size: 18px; font-weight: 700; }
     .next-draw-prize {
-      font-size: 22px; font-weight: 800;
+      font-size: 16px; font-weight: 700; line-height: 1.4;
       background: linear-gradient(135deg, #fde68a, #f59e0b);
       -webkit-background-clip: text; background-clip: text; color: transparent;
       text-align: left; direction: ltr;
     }
+    .next-draw-prize > div { font-size: 16px; }
     .next-draw-prize:empty { display: none; }
     .next-draw-countdown {
       margin-top: 10px; padding-top: 10px;
@@ -1421,8 +1422,12 @@
       const mm = String(target.getMonth() + 1).padStart(2, '0');
       dateEl.textContent = `יום ${DAY_NAMES[target.getDay()]} · ${dd}/${mm}`;
       countdownEl.textContent = formatCountdown(target, now);
-      if (stats && stats.jackpot && stats.jackpot.firstPrize) {
-        prizeEl.textContent = `עד ${stats.jackpot.firstPrize}`;
+      if (stats && stats.jackpot && (stats.jackpot.firstPrize || stats.jackpot.firstPrizeDouble)) {
+        const jp = stats.jackpot;
+        const parts = [];
+        if (jp.firstPrize) parts.push(`לוטו: ${jp.firstPrize}`);
+        if (jp.firstPrizeDouble) parts.push(`דאבל לוטו: ${jp.firstPrizeDouble}`);
+        prizeEl.innerHTML = parts.map(p => `<div>${p}</div>`).join('');
       } else {
         prizeEl.textContent = '';
       }
@@ -1605,8 +1610,12 @@
       if (![2, 4, 6].includes(now.getDay())) return;
       const todayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
       if (localStorage.getItem(NOTIF_LAST_KEY) === todayKey) return;
-      const jackpot = (stats && stats.jackpot && stats.jackpot.firstPrize) || '';
-      const body = jackpot ? `פרס משוער: ${jackpot}. הגרלה ב-22:00.` : 'הגרלה הערב ב-22:00.';
+      const jp = stats && stats.jackpot ? stats.jackpot : null;
+      let prize = '';
+      if (jp && jp.firstPrize && jp.firstPrizeDouble) prize = `לוטו ${jp.firstPrize} · דאבל ${jp.firstPrizeDouble}`;
+      else if (jp && jp.firstPrize) prize = jp.firstPrize;
+      else if (jp && jp.firstPrizeDouble) prize = `דאבל לוטו ${jp.firstPrizeDouble}`;
+      const body = prize ? `${prize}. הגרלה ב-22:00.` : 'הגרלה הערב ב-22:00.';
       try {
         new Notification('🎲 הגרלת לוטו היום!', {
           body, icon: './icon.svg', tag: 'lotto-draw-today',

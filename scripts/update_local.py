@@ -163,11 +163,19 @@ def build_stats(csv_bytes: bytes) -> dict:
     }
 
 
-JACKPOT_PATTERNS = {
-    'firstPrize':  r'פרס ראשון בהגרלה זו בלוטו עמד על\s*([0-9.,]+\s*(?:מיליון|אלף|₪))',
-    'secondPrize': r'פרס שני בהגרלה זו בלוטו עמד על\s*([0-9.,]+\s*(?:מיליון|אלף|₪))',
-    'distributed': r'פרסים שחולקו בהגרלה:\s*([0-9,]+\s*₪)',
-}
+JACKPOT_AMOUNT = r'[0-9.,]+(?:\s*(?:מיליון|אלף|₪))+'
+JACKPOT_PATTERNS = [
+    (('firstPrize', 'firstPrizeDouble'),
+     rf'פרס ראשון בהגרלה זו בלוטו עמד על\s*({JACKPOT_AMOUNT})\s*ועד\s*({JACKPOT_AMOUNT})\s*בדאבל לוטו'),
+    (('secondPrize', 'secondPrizeDouble'),
+     rf'פרס שני בהגרלה זו בלוטו עמד על\s*({JACKPOT_AMOUNT})\s*ועד\s*({JACKPOT_AMOUNT})\s*בדאבל לוטו'),
+    (('firstPrize',),
+     rf'פרס ראשון בהגרלה זו בלוטו עמד על\s*({JACKPOT_AMOUNT})'),
+    (('secondPrize',),
+     rf'פרס שני בהגרלה זו בלוטו עמד על\s*({JACKPOT_AMOUNT})'),
+    (('distributed',),
+     r'פרסים שחולקו בהגרלה:\s*([0-9,]+\s*₪)'),
+]
 
 
 def scrape_jackpot() -> dict:
@@ -176,11 +184,15 @@ def scrape_jackpot() -> dict:
     except Exception as e:
         print(f'  jackpot fetch failed: {e}')
         return {}
-    out = {}
-    for key, pattern in JACKPOT_PATTERNS.items():
+    out: dict = {}
+    for keys, pattern in JACKPOT_PATTERNS:
         m = re.search(pattern, html)
-        if m:
-            out[key] = re.sub(r'\s+', ' ', m.group(1)).strip()
+        if not m:
+            continue
+        for idx, key in enumerate(keys):
+            if key in out:
+                continue
+            out[key] = re.sub(r'\s+', ' ', m.group(idx + 1)).strip()
     return out
 
 

@@ -1,4 +1,4 @@
-const CACHE = 'lotto-v14';
+const CACHE = 'lotto-v15';
 const SHELL = ['./', './index.html', './manifest.json', './icon.svg', './lotto-stats.json'];
 
 self.addEventListener('install', (e) => {

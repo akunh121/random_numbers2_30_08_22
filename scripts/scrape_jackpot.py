@@ -21,10 +21,15 @@ OUT_PATH = REPO / 'public' / 'lotto-jackpot.json'
 URL = 'https://www.pais.co.il/lotto/'
 UA = 'Mozilla/5.0 (compatible; lotto-stats-updater)'
 
+AMOUNT = r'[0-9.,]+(?:\s*(?:מיליון|אלף|₪))+'
 PATTERNS = {
-    'firstPrize': r'פרס ראשון בהגרלה זו בלוטו עמד על\s*([0-9.,]+\s*(?:מיליון|אלף|₪))',
-    'secondPrize': r'פרס שני בהגרלה זו בלוטו עמד על\s*([0-9.,]+\s*(?:מיליון|אלף|₪))',
-    'distributed': r'פרסים שחולקו בהגרלה:\s*([0-9,]+\s*₪)',
+    ('firstPrize', 'firstPrizeDouble'):
+        rf'פרס ראשון בהגרלה זו בלוטו עמד על\s*({AMOUNT})\s*ועד\s*({AMOUNT})\s*בדאבל לוטו',
+    ('secondPrize', 'secondPrizeDouble'):
+        rf'פרס שני בהגרלה זו בלוטו עמד על\s*({AMOUNT})\s*ועד\s*({AMOUNT})\s*בדאבל לוטו',
+    ('firstPrize',): r'פרס ראשון בהגרלה זו בלוטו עמד על\s*(' + AMOUNT + ')',
+    ('secondPrize',): r'פרס שני בהגרלה זו בלוטו עמד על\s*(' + AMOUNT + ')',
+    ('distributed',): r'פרסים שחולקו בהגרלה:\s*([0-9,]+\s*₪)',
 }
 
 
@@ -50,10 +55,14 @@ def main():
         return 0
 
     data = {}
-    for key, pattern in PATTERNS.items():
+    for keys, pattern in PATTERNS.items():
         m = re.search(pattern, html)
-        if m:
-            data[key] = normalize(m.group(1))
+        if not m:
+            continue
+        for idx, key in enumerate(keys):
+            if key in data:
+                continue
+            data[key] = normalize(m.group(idx + 1))
 
     if not data:
         print('no jackpot data extracted', file=sys.stderr)
