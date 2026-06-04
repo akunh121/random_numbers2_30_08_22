@@ -610,6 +610,56 @@
     .match-badge.match-mid { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
     .match-badge.match-high { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
 
+    .backtest-controls {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
+      align-items: end;
+    }
+    .backtest-controls .field { flex: 1; min-width: 110px; }
+    .backtest-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+      direction: ltr; margin-top: 10px;
+    }
+    .backtest-table th, .backtest-table td {
+      padding: 8px 6px; text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .backtest-table th {
+      color: var(--text-muted); font-weight: 600; font-size: 11px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .backtest-table td.label { text-align: right; color: var(--text-muted); }
+    .backtest-table tr.section td {
+      padding-top: 14px; font-weight: 600; color: var(--text);
+      border-top: 1px solid var(--border);
+    }
+    .backtest-table tr.net td.value {
+      font-weight: 800; font-size: 15px;
+    }
+    .backtest-table td.value.positive { color: #6ee7b7; }
+    .backtest-table td.value.negative { color: #fca5a5; }
+    .backtest-disclaimer {
+      font-size: 11px; color: var(--text-muted); margin-top: 12px;
+      padding: 8px 12px; background: rgba(255,255,255,0.03);
+      border-radius: var(--radius-sm); border: 1px dashed var(--border);
+    }
+
+    .confetti-piece {
+      position: absolute; top: -20px;
+      will-change: transform, opacity;
+      pointer-events: none;
+    }
+    .confetti-stage {
+      position: fixed; inset: 0; overflow: hidden;
+      pointer-events: none; z-index: 9999;
+    }
+    @keyframes confetti-fall {
+      0%   { transform: translate3d(0, 0, 0) rotate(0deg);     opacity: 1; }
+      100% { transform: translate3d(var(--dx), 110vh, 0) rotate(720deg); opacity: 0; }
+    }
+
+    .trophy { font-size: 16px; margin-left: 4px; vertical-align: middle; }
+
     .would-win-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
     .would-win-best {
       padding: 14px;
@@ -991,6 +1041,30 @@
       </div>
     </section>
 
+    <section class="card" id="backtestCard" style="display: none;">
+      <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 600;">השוואת אסטרטגיות</h2>
+      <p style="margin: 0 0 14px; color: var(--text-muted); font-size: 13px;">
+        סימולציה של 3 המצבים מול ההגרלות האמיתיות. תקבל תשובה כמותית: האם "חמים" באמת עוזר?
+      </p>
+      <div class="backtest-controls">
+        <div class="field">
+          <label for="btTickets">טורים להגרלה</label>
+          <input type="number" id="btTickets" value="3" min="1" max="20" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="btDraws">הגרלות אחרונות</label>
+          <input type="number" id="btDraws" value="50" min="5" max="50" inputmode="numeric">
+        </div>
+        <button class="primary" id="btRunBtn" type="button" style="min-width: 110px;">
+          <span id="btRunLabel">הרץ</span>
+        </button>
+      </div>
+      <div id="btResults"></div>
+      <div class="backtest-disclaimer">
+        ערכי הפרסים מוערכים בקירוב. עלות טור: 5.80 ₪. השוואה מבוססת על אותם נתוני תדירות, אז למעשה זו "סימולציה" ולא בדיקה רטרואקטיבית מושלמת.
+      </div>
+    </section>
+
     <section class="card" id="wouldWinCard" style="display: none;">
       <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 600;">כמה הייתי זוכה?</h2>
       <div class="would-win-meta" id="wouldWinMeta"></div>
@@ -1104,6 +1178,12 @@
       resetStatsBtn: document.getElementById('resetStatsBtn'),
       enableSound: document.getElementById('enableSound'),
       notifBtn: document.getElementById('notifBtn'),
+      backtestCard: document.getElementById('backtestCard'),
+      btTickets: document.getElementById('btTickets'),
+      btDraws: document.getElementById('btDraws'),
+      btRunBtn: document.getElementById('btRunBtn'),
+      btRunLabel: document.getElementById('btRunLabel'),
+      btResults: document.getElementById('btResults'),
       wouldWinCard: document.getElementById('wouldWinCard'),
       wouldWinMeta: document.getElementById('wouldWinMeta'),
       wouldWinBest: document.getElementById('wouldWinBest'),
@@ -1177,6 +1257,7 @@
         renderStats();
         renderCombos();
         renderWouldWin();
+        setupBacktest();
         notifyIfDrawToday();
       } catch {}
     }
@@ -1974,6 +2055,18 @@
         els.ticketsOut.innerHTML = '';
         if (els.emptyTickets) els.emptyTickets.style.display = 'none';
 
+        const bestHit = tickets.reduce((best, t) => {
+          const m = computeMatch(t);
+          if (!m || !m.tier) return best;
+          const rank = TIER_ORDER.indexOf(m.tier);
+          return (best === null || rank < best) ? rank : best;
+        }, null);
+        if (bestHit !== null && bestHit <= TIER_ORDER.indexOf('3')) {
+          const intensity = bestHit <= TIER_ORDER.indexOf('5') ? 120
+                           : bestHit <= TIER_ORDER.indexOf('4') ? 80 : 50;
+          setTimeout(() => confettiBurst(intensity), 200);
+        }
+
         tickets.forEach((t, i) => {
           const div = document.createElement('div');
           div.className = 'ticket';
@@ -2078,7 +2171,9 @@
         let bucket = 'low';
         if (total >= 4) bucket = 'high';
         else if (total >= 2) bucket = 'mid';
-        return { bucket, text: `התאמה להגרלה האחרונה: ${parts.join(' + ')}` };
+        const tk = tierKey(mainHits, strongHit);
+        const trophy = tk && TROPHY[tk] ? ` ${TROPHY[tk]}` : '';
+        return { bucket, text: `התאמה להגרלה האחרונה: ${parts.join(' + ')}${trophy}`, tier: tk };
       }
 
       async function copyTicket(t) {
@@ -2177,8 +2272,9 @@
         if (res.best) {
           const div = document.createElement('div');
           div.className = 'would-win-best';
+          const t = TROPHY[res.best.k] || '';
           div.innerHTML = `
-            <div class="best-label">התוצאה הכי טובה שלך</div>
+            <div class="best-label">התוצאה הכי טובה שלך ${t}</div>
             <div><strong>${TIER_LABELS[res.best.k]}</strong></div>
             <div style="margin-top: 4px; color: var(--text-muted); font-size: 12px;">
               טור: ${res.best.ticket.main.join(', ')} + ${res.best.ticket.strong} ·
@@ -2211,6 +2307,125 @@
         saveHistory();
         try { renderNextDraw(); } catch {}
         renderHistory();
+      }
+
+      const TICKET_COST = 5.80;
+      const PRIZE_VALUE = {
+        '6+s': 5000000, '6': 500000,
+        '5+s': 25000,   '5': 3000,
+        '4+s': 250,     '4': 50,
+        '3+s': 25,      '3': 10,
+      };
+      const TROPHY = { '3': '🥉', '3+s': '🥉',
+                       '4': '🥈', '4+s': '🥈',
+                       '5': '🥇', '5+s': '🥇',
+                       '6':   '🏆', '6+s': '🏆' };
+      const MODE_LABELS = { uniform: 'אקראי', hot: 'חמים', cold: 'קרים' };
+
+      function backtestMode(mode, ticketsPerDraw, drawsBack) {
+        const draws = stats.recent.slice(0, Math.min(drawsBack, stats.recent.length));
+        const tiers = {}; for (const k of TIER_ORDER) tiers[k] = 0;
+        let cost = 0, winnings = 0, totalHits = 0;
+        const cfg = { mainCount: 6, mainMin: 1, mainMax: 37, strongMin: 1, strongMax: 7 };
+        for (const draw of draws) {
+          const drawMain = new Set(draw.main);
+          for (let i = 0; i < ticketsPerDraw; i++) {
+            const t = generateLocal(cfg, mode);
+            cost += TICKET_COST;
+            const hits = t.main.filter(n => drawMain.has(n)).length;
+            const strongHit = t.strong === draw.strong ? 1 : 0;
+            const k = tierKey(hits, strongHit);
+            if (k) {
+              tiers[k]++;
+              winnings += PRIZE_VALUE[k];
+              totalHits++;
+            }
+          }
+        }
+        return { mode, tiers, cost, winnings, net: winnings - cost,
+                 totalHits, totalTickets: ticketsPerDraw * draws.length,
+                 drawsUsed: draws.length };
+      }
+
+      function fmtMoney(n) {
+        const s = Math.round(Math.abs(n)).toLocaleString('he-IL');
+        return (n < 0 ? '-' : '') + s + ' ₪';
+      }
+
+      async function runBacktest() {
+        if (!stats || !stats.recent || stats.recent.length < 1) return;
+        const ticketsPerDraw = Math.max(1, Math.min(20, parseInt(els.btTickets.value, 10) || 1));
+        const drawsBack = Math.max(1, Math.min(50, parseInt(els.btDraws.value, 10) || 50));
+        els.btRunBtn.disabled = true;
+        els.btRunLabel.innerHTML = '<span class="spinner"></span> מריץ...';
+        await delay(60);
+        const modes = ['uniform', 'hot', 'cold'];
+        const results = modes.map(m => backtestMode(m, ticketsPerDraw, drawsBack));
+        els.btResults.innerHTML = renderBacktestTable(results);
+        els.btRunBtn.disabled = false;
+        els.btRunLabel.textContent = 'הרץ שוב';
+        const bestMode = results.slice().sort((a, b) => b.net - a.net)[0];
+        const allNegative = results.every(r => r.net < 0);
+        if (!allNegative) confettiBurst(40);
+        showToast(allNegative
+          ? `אף אסטרטגיה לא חיובית – הלוטו מנצח (${MODE_LABELS[bestMode.mode]} הכי פחות גרוע)`
+          : `${MODE_LABELS[bestMode.mode]} ניצח: ${fmtMoney(bestMode.net)}`);
+      }
+
+      function renderBacktestTable(results) {
+        const cellClass = n => n > 0 ? 'value positive' : n < 0 ? 'value negative' : 'value';
+        const headers = `<tr><th></th>${results.map(r => `<th>${MODE_LABELS[r.mode]}</th>`).join('')}</tr>`;
+        let body = '';
+        for (const k of TIER_ORDER) {
+          if (results.every(r => r.tiers[k] === 0)) continue;
+          body += `<tr><td class="label">${TIER_LABELS[k]} ${TROPHY[k] || ''}</td>`
+                + results.map(r => `<td>${r.tiers[k]}</td>`).join('') + '</tr>';
+        }
+        const totalsRow = (label, fn) =>
+          `<tr class="section"><td class="label">${label}</td>` +
+          results.map(r => `<td>${fn(r)}</td>`).join('') + '</tr>';
+        body += totalsRow('סך פגיעות', r => r.totalHits);
+        body += totalsRow('סך טורים', r => r.totalTickets);
+        body += totalsRow('עלות', r => fmtMoney(r.cost));
+        body += totalsRow('זכייה משוערת', r => fmtMoney(r.winnings));
+        body += `<tr class="section net"><td class="label">תוצאה</td>` +
+                results.map(r => `<td class="${cellClass(r.net)}">${fmtMoney(r.net)}</td>`).join('') +
+                '</tr>';
+        return `<table class="backtest-table">${headers}${body}</table>`;
+      }
+
+      function confettiBurst(count = 50) {
+        if (!els.enableSound.checked) return;
+        const stage = document.createElement('div');
+        stage.className = 'confetti-stage';
+        for (let i = 0; i < count; i++) {
+          const piece = document.createElement('div');
+          piece.className = 'confetti-piece';
+          const size = 6 + Math.random() * 8;
+          const hue = Math.random() * 360;
+          const left = Math.random() * 100;
+          const dx = (Math.random() - 0.5) * 200;
+          const dur = 2 + Math.random() * 2;
+          const delay = Math.random() * 0.3;
+          piece.style.cssText =
+            `left:${left}%;` +
+            `width:${size}px;height:${size * 0.55}px;` +
+            `background:hsl(${hue},80%,60%);` +
+            `--dx:${dx}px;` +
+            `animation:confetti-fall ${dur}s ease-out ${delay}s forwards;`;
+          stage.appendChild(piece);
+        }
+        document.body.appendChild(stage);
+        setTimeout(() => stage.remove(), 5500);
+      }
+
+      let backtestInited = false;
+      function setupBacktest() {
+        if (backtestInited) return;
+        if (!stats || !stats.recent || stats.recent.length === 0) return;
+        backtestInited = true;
+        els.backtestCard.style.display = 'block';
+        els.btRunBtn.addEventListener('click', runBacktest);
       }
 
       function renderHistory() {
