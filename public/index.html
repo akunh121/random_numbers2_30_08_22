@@ -609,6 +609,60 @@
     .match-badge.match-mid { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
     .match-badge.match-high { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
 
+    .would-win-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+    .would-win-best {
+      padding: 14px;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(99, 102, 241, 0.08));
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: var(--radius-sm);
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+    .would-win-best .best-label {
+      font-size: 11px; font-weight: 700; color: var(--success);
+      letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;
+    }
+    .would-win-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+      direction: ltr;
+    }
+    .would-win-table th, .would-win-table td {
+      padding: 8px 10px; text-align: center;
+    }
+    .would-win-table th {
+      color: var(--text-muted); font-weight: 600; font-size: 11px;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    .would-win-table tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .would-win-table td.tier-name { text-align: right; }
+    .would-win-table td.tier-count { font-weight: 700; color: var(--success); }
+    .would-win-empty {
+      color: var(--text-muted); font-size: 13px; text-align: center;
+      padding: 14px;
+    }
+
+    .ball.spinning {
+      background: radial-gradient(circle at 30% 30%, #cbd5e1, #94a3b8);
+      animation: spin-ball 0.5s linear infinite;
+    }
+    @keyframes spin-ball {
+      0%   { transform: rotate(0deg)   scale(1); }
+      50%  { transform: rotate(180deg) scale(0.9); }
+      100% { transform: rotate(360deg) scale(1); }
+    }
+
+    .notif-btn {
+      background: transparent; border: 1px solid var(--border);
+      cursor: pointer; font-size: 14px;
+      width: 28px; height: 28px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: var(--transition); padding: 0;
+    }
+    .notif-btn:hover { background: rgba(255,255,255,0.08); }
+    .notif-btn.granted { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); }
+    .notif-btn.denied { opacity: 0.5; }
+
     .combos-header {
       display: flex; justify-content: space-between; align-items: center;
       flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
@@ -727,6 +781,7 @@
       <p class="subtitle">הגרלה אקראית — נמשכת מ-Firebase עם גיבוי מקומי</p>
       <div class="user-badge" id="userBadge" style="display: none;">
         <span class="user-email" id="userEmail"></span>
+        <button class="notif-btn" id="notifBtn" type="button" aria-label="הפעל התראות" title="הפעל התראות">🔔</button>
         <button class="theme-btn" id="themeBtn" type="button" aria-label="החלף ערכת צבעים">🌙</button>
         <button class="sign-out" id="signOutBtn" type="button">התנתק</button>
       </div>
@@ -762,6 +817,11 @@
       <label class="toggle">
         <input type="checkbox" id="useFirebase" checked>
         <span>השתמש ב-Firebase (אם זמין)</span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" id="enableSound" checked>
+        <span>צליל ואנימציה בהגרלה 🔊</span>
       </label>
 
       <div class="pick-mode-group" role="radiogroup" aria-label="מצב הגרלה">
@@ -930,6 +990,22 @@
       </div>
     </section>
 
+    <section class="card" id="wouldWinCard" style="display: none;">
+      <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 600;">כמה הייתי זוכה?</h2>
+      <div class="would-win-meta" id="wouldWinMeta"></div>
+      <div id="wouldWinBest"></div>
+      <table class="would-win-table">
+        <thead>
+          <tr>
+            <th>תוצאה</th>
+            <th>פעמים</th>
+          </tr>
+        </thead>
+        <tbody id="wouldWinTbody"></tbody>
+      </table>
+      <div class="would-win-empty" id="wouldWinEmpty">עוד לא הוגרלו טורים — הגרל כמה ובוא נראה.</div>
+    </section>
+
     <section class="card">
       <div class="history-header">
         <h2>היסטוריה</h2>
@@ -1025,7 +1101,20 @@
       uploadCsvBtn: document.getElementById('uploadCsvBtn'),
       csvFileInput: document.getElementById('csvFileInput'),
       resetStatsBtn: document.getElementById('resetStatsBtn'),
+      enableSound: document.getElementById('enableSound'),
+      notifBtn: document.getElementById('notifBtn'),
+      wouldWinCard: document.getElementById('wouldWinCard'),
+      wouldWinMeta: document.getElementById('wouldWinMeta'),
+      wouldWinBest: document.getElementById('wouldWinBest'),
+      wouldWinTbody: document.getElementById('wouldWinTbody'),
+      wouldWinEmpty: document.getElementById('wouldWinEmpty'),
     };
+
+    const SOUND_PREF_KEY = 'lotto_sound_v1';
+    if (localStorage.getItem(SOUND_PREF_KEY) === '0') els.enableSound.checked = false;
+    els.enableSound.addEventListener('change', () => {
+      localStorage.setItem(SOUND_PREF_KEY, els.enableSound.checked ? '1' : '0');
+    });
 
     const STATS_OVERRIDE_KEY = 'lotto_stats_override_v1';
 
@@ -1086,6 +1175,8 @@
         renderRealDraw();
         renderStats();
         renderCombos();
+        renderWouldWin();
+        notifyIfDrawToday();
       } catch {}
     }
 
@@ -1463,6 +1554,65 @@
       els.appShell.style.display = 'block';
       els.userBadge.style.display = 'inline-flex';
       els.userEmail.textContent = user.email;
+      initNotifications();
+    }
+
+    const NOTIF_LAST_KEY = 'lotto_last_draw_notif';
+
+    function initNotifications() {
+      if (!('Notification' in window)) {
+        els.notifBtn.style.display = 'none';
+        return;
+      }
+      updateNotifBtn();
+      els.notifBtn.addEventListener('click', async () => {
+        if (Notification.permission === 'granted') {
+          new Notification('🎲 בדיקת התראות', {
+            body: 'התראות פעילות. תקבל הודעה ביום הגרלה.',
+            icon: './icon.svg',
+            tag: 'lotto-test',
+          });
+          return;
+        }
+        if (Notification.permission === 'denied') {
+          showToast('התראות חסומות בדפדפן. שנה בהגדרות האתר.');
+          return;
+        }
+        const p = await Notification.requestPermission();
+        updateNotifBtn();
+        if (p === 'granted') {
+          showToast('התראות הופעלו');
+          notifyIfDrawToday();
+        }
+      });
+      notifyIfDrawToday();
+    }
+
+    function updateNotifBtn() {
+      if (!els.notifBtn) return;
+      const p = Notification.permission;
+      els.notifBtn.classList.toggle('granted', p === 'granted');
+      els.notifBtn.classList.toggle('denied', p === 'denied');
+      els.notifBtn.textContent = p === 'granted' ? '🔔' : p === 'denied' ? '🔕' : '🔕';
+      els.notifBtn.title = p === 'granted' ? 'התראות פעילות (לחץ לבדיקה)'
+                          : p === 'denied' ? 'התראות חסומות בדפדפן'
+                          : 'הפעל התראות';
+    }
+
+    function notifyIfDrawToday() {
+      if (Notification.permission !== 'granted') return;
+      const now = new Date();
+      if (![2, 4, 6].includes(now.getDay())) return;
+      const todayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+      if (localStorage.getItem(NOTIF_LAST_KEY) === todayKey) return;
+      const jackpot = (stats && stats.jackpot && stats.jackpot.firstPrize) || '';
+      const body = jackpot ? `פרס משוער: ${jackpot}. הגרלה ב-22:00.` : 'הגרלה הערב ב-22:00.';
+      try {
+        new Notification('🎲 הגרלת לוטו היום!', {
+          body, icon: './icon.svg', tag: 'lotto-draw-today',
+        });
+        localStorage.setItem(NOTIF_LAST_KEY, todayKey);
+      } catch {}
     }
 
     async function doSignIn() {
@@ -1677,6 +1827,46 @@
         }
       }
 
+      let audioCtx = null;
+      function getAudio() {
+        if (audioCtx) return audioCtx;
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+        return audioCtx;
+      }
+
+      function playDrumRoll() {
+        if (!els.enableSound.checked) return;
+        const ctx = getAudio();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const now = ctx.currentTime;
+        for (let i = 0; i < 8; i++) {
+          const t = now + i * 0.06;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = 220 + i * 35;
+          gain.gain.setValueAtTime(0.07, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.06);
+        }
+        const dingT = now + 0.55;
+        const ding = ctx.createOscillator();
+        const dingGain = ctx.createGain();
+        ding.type = 'triangle';
+        ding.frequency.setValueAtTime(660, dingT);
+        ding.frequency.exponentialRampToValueAtTime(990, dingT + 0.25);
+        dingGain.gain.setValueAtTime(0.18, dingT);
+        dingGain.gain.exponentialRampToValueAtTime(0.001, dingT + 0.35);
+        ding.connect(dingGain).connect(ctx.destination);
+        ding.start(dingT);
+        ding.stop(dingT + 0.35);
+      }
+
+      function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
       async function generate() {
         clearError();
 
@@ -1710,9 +1900,12 @@
 
         setLoading(true);
         try {
-          const results = await Promise.all(
-            Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase, mode))
-          );
+          const animate = els.enableSound.checked;
+          if (animate) playDrumRoll();
+          const [results] = await Promise.all([
+            Promise.all(Array.from({ length: cfg.tickets }, () => generateOne(cfg, useFirebase, mode))),
+            animate ? delay(900) : Promise.resolve(),
+          ]);
           renderTickets(results);
           results.forEach(r => addToHistory(r));
           const anyFallback = results.some(r => r.fallback);
@@ -1864,6 +2057,103 @@
         }
       }
 
+      const TIER_ORDER = ['6+s','6','5+s','5','4+s','4','3+s','3'];
+      const TIER_LABELS = {
+        '6+s': '6 רגילים + חזק (פרס ראשון)',
+        '6':   '6 רגילים (פרס שני)',
+        '5+s': '5 רגילים + חזק',
+        '5':   '5 רגילים',
+        '4+s': '4 רגילים + חזק',
+        '4':   '4 רגילים',
+        '3+s': '3 רגילים + חזק',
+        '3':   '3 רגילים',
+      };
+
+      function tierKey(mainHits, strongHit) {
+        if (mainHits < 3) return null;
+        return strongHit ? `${mainHits}+s` : `${mainHits}`;
+      }
+
+      function computeWouldWin() {
+        if (!stats || !stats.recent || stats.recent.length === 0) return null;
+        const tiers = {}; for (const k of TIER_ORDER) tiers[k] = 0;
+        let best = null;
+        let ticketsWithAnyHit = 0;
+        for (const ticket of history) {
+          let ticketBest = null;
+          for (const draw of stats.recent) {
+            const drawMain = new Set(draw.main);
+            const mainHits = ticket.main.filter(n => drawMain.has(n)).length;
+            const strongHit = ticket.strong === draw.strong ? 1 : 0;
+            const k = tierKey(mainHits, strongHit);
+            if (k) {
+              tiers[k]++;
+              const rank = TIER_ORDER.indexOf(k);
+              if (!ticketBest || rank < ticketBest.rank) ticketBest = { rank, k, draw };
+              if (!best || rank < best.rank) best = { rank, k, ticket, draw, mainHits, strongHit };
+            }
+          }
+          if (ticketBest) ticketsWithAnyHit++;
+        }
+        return {
+          tiers,
+          best,
+          ticketsWithAnyHit,
+          totalTickets: history.length,
+          totalDraws: stats.recent.length,
+        };
+      }
+
+      function renderWouldWin() {
+        const card = els.wouldWinCard;
+        const res = computeWouldWin();
+        if (!res) { card.style.display = 'none'; return; }
+        card.style.display = 'block';
+
+        if (res.totalTickets === 0) {
+          els.wouldWinMeta.textContent = '';
+          els.wouldWinBest.innerHTML = '';
+          els.wouldWinTbody.innerHTML = '';
+          els.wouldWinEmpty.style.display = 'block';
+          return;
+        }
+        els.wouldWinEmpty.style.display = 'none';
+
+        els.wouldWinMeta.textContent =
+          `בדיקה של ${res.totalTickets} מהטורים שלך מול ${res.totalDraws} ההגרלות האחרונות האמיתיות.`;
+
+        els.wouldWinBest.innerHTML = '';
+        if (res.best) {
+          const div = document.createElement('div');
+          div.className = 'would-win-best';
+          div.innerHTML = `
+            <div class="best-label">התוצאה הכי טובה שלך</div>
+            <div><strong>${TIER_LABELS[res.best.k]}</strong></div>
+            <div style="margin-top: 4px; color: var(--text-muted); font-size: 12px;">
+              טור: ${res.best.ticket.main.join(', ')} + ${res.best.ticket.strong} ·
+              מול הגרלה ${res.best.draw.date}
+            </div>`;
+          els.wouldWinBest.appendChild(div);
+        }
+
+        els.wouldWinTbody.innerHTML = '';
+        let any = false;
+        for (const k of TIER_ORDER) {
+          if (!res.tiers[k]) continue;
+          any = true;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td class="tier-name">${TIER_LABELS[k]}</td><td class="tier-count">${res.tiers[k]}</td>`;
+          els.wouldWinTbody.appendChild(tr);
+        }
+        if (!any) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td colspan="2" style="color: var(--text-muted); padding: 14px;">
+            אף אחד מהטורים שלך לא היה זוכה ב-${res.totalDraws} ההגרלות האחרונות. ככה זה בלוטו.
+          </td>`;
+          els.wouldWinTbody.appendChild(tr);
+        }
+      }
+
       function addToHistory(entry) {
         history.unshift(entry);
         if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
@@ -1872,6 +2162,7 @@
       }
 
       function renderHistory() {
+        try { renderWouldWin(); } catch {}
         els.history.innerHTML = '';
         if (history.length === 0) {
           els.emptyHistory.style.display = 'block';
