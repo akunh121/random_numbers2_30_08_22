@@ -103,15 +103,20 @@ def emby_login(session: requests.Session, base_url: str,
 
 
 def emby_get_items(session: requests.Session, base_url: str, token: str,
-                   parent_id: str, item_types: str,
+                   parent_id: Optional[str] = None,
+                   item_types: str = "Series",
+                   search_term: Optional[str] = None,
                    limit: int = 1000) -> List[Dict[str, Any]]:
     url = f"{base_url.rstrip('/')}/Items"
-    params = {
-        "ParentId": parent_id,
+    params: Dict[str, Any] = {
         "IncludeItemTypes": item_types,
         "Recursive": "true",
         "Limit": limit,
     }
+    if parent_id:
+        params["ParentId"] = parent_id
+    if search_term:
+        params["SearchTerm"] = search_term
     headers = {"X-Emby-Token": token}
     r = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
@@ -138,12 +143,33 @@ def expand_path(p: str) -> Path:
 # Main fetch logic
 
 def fetch_series(session: requests.Session, base_url: str, token: str,
-                 parent_id: str, out_dir: Path,
-                 skip_existing: bool = False) -> None:
-    print(f"שולף סדרות מתחת ParentId={parent_id} ...")
-    series_items = emby_get_items(
-        session, base_url, token, parent_id, "Series", limit=1000
-    )
+                 parent_id: Optional[str], out_dir: Path,
+                 skip_existing: bool = False,
+                 series_name: Optional[str] = None) -> None:
+    if series_name:
+        print(f"מחפש סדרה בשם: {series_name}")
+        series_items = emby_get_items(
+            session, base_url, token,
+            parent_id=parent_id, item_types="Series",
+            search_term=series_name, limit=200,
+        )
+        target = series_name.strip().casefold()
+        exact = [s for s in series_items
+                 if (s.get("Name") or "").strip().casefold() == target]
+        if exact:
+            series_items = exact
+        else:
+            partial = [s for s in series_items
+                       if target in (s.get("Name") or "").casefold()]
+            if partial:
+                series_items = partial
+    else:
+        print(f"שולף סדרות מתחת ParentId={parent_id} ...")
+        series_items = emby_get_items(
+            session, base_url, token,
+            parent_id=parent_id, item_types="Series", limit=1000,
+        )
+
     if not series_items:
         print("לא נמצאו סדרות.")
         return
@@ -215,6 +241,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--password", help="סיסמה להתחברות")
     p.add_argument("--parent-id", default=None,
                    help=f"ParentId של קטגוריית הסדרות (ברירת מחדל: {DEFAULT_PARENT_ID})")
+    p.add_argument("--series-name", default=None,
+                   help="חיפוש ועיבוד של סדרה ספציפית לפי שם (אם נתון, --parent-id אופציונלי)")
     p.add_argument("--out-dir", default=None,
                    help=f"תיקיית פלט (ברירת מחדל: {DEFAULT_OUT_DIR})")
     p.add_argument("--skip-existing", action="store_true",
@@ -257,12 +285,17 @@ def main() -> int:
             save_config(config_path, config)
             print(f"Token נשמר ב-{config_path}")
 
-    parent_id = args.parent_id or config.get("parent_id") or DEFAULT_PARENT_ID
+    series_name = args.series_name
+    if series_name:
+        parent_id = args.parent_id or config.get("parent_id")
+    else:
+        parent_id = args.parent_id or config.get("parent_id") or DEFAULT_PARENT_ID
     out_dir = expand_path(args.out_dir or config.get("out_dir") or DEFAULT_OUT_DIR)
 
     try:
         fetch_series(session, base_url, token, parent_id, out_dir,
-                     skip_existing=args.skip_existing)
+                     skip_existing=args.skip_existing,
+                     series_name=series_name)
     except requests.HTTPError as e:
         print(f"[!] שגיאת HTTP מ-Emby: {e}", file=sys.stderr)
         return 1

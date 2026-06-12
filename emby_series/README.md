@@ -53,6 +53,12 @@ python fetch_series.py --parent-id 1070346 --out-dir ~/EmbySeries
 python fetch_series.py --skip-existing
 ```
 
+סדרה ספציפית לפי שם (חיפוש בכל הספרייה, בלי צורך ב-parent-id):
+
+```bash
+python fetch_series.py --series-name "הישרדות ישראל"
+```
+
 ## דגלי CLI
 
 | דגל              | תיאור                                          |
@@ -63,6 +69,7 @@ python fetch_series.py --skip-existing
 | `--username`     | שם משתמש להתחברות                              |
 | `--password`     | סיסמה להתחברות                                 |
 | `--parent-id`    | ParentId של קטגוריית הסדרות                    |
+| `--series-name`  | חיפוש סדרה ספציפית לפי שם                     |
 | `--out-dir`      | תיקיית פלט                                     |
 | `--skip-existing`| דילוג על קבצי JSON קיימים                      |
 | `--save-token`   | שמירת ה-token לקובץ ההגדרות אחרי לוגין מוצלח   |
