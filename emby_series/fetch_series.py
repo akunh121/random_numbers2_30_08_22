@@ -26,8 +26,15 @@ import json
 import os
 import re
 import sys
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -68,27 +75,32 @@ def save_config(path: Path, data: Dict[str, Any]) -> None:
 # HTTP
 
 def build_session() -> requests.Session:
-    session = requests.Session()
-    retry = Retry(
-        total=4,
-        backoff_factor=1.5,
-        status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET", "POST"]),
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    if HAS_CLOUDSCRAPER:
+        session = cloudscraper.create_scraper(
+            browser={"browser": "chrome", "platform": "windows", "desktop": True}
+        )
+    else:
+        session = requests.Session()
+        retry = Retry(
+            total=4,
+            backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET", "POST"]),
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
     return session
 
 
 def emby_login(session: requests.Session, base_url: str,
-               username: str, password: str) -> str:
-    """מבצע התחברות ומחזיר AccessToken חדש."""
+               username: str, password: str) -> Tuple[str, str]:
+    """מבצע התחברות ומחזיר (AccessToken, UserId)."""
     url = f"{base_url.rstrip('/')}/Users/AuthenticateByName"
     headers = {
         "X-Emby-Authorization": (
-            'MediaBrowser Client="fetch_series.py", Device="cli", '
-            'DeviceId="fetch_series_cli", Version="1.0"'
+            'MediaBrowser Client="Emby Web", Device="Chrome", '
+            'DeviceId="fetch_series_cli", Version="4.9.0"'
         ),
         "Content-Type": "application/json",
     }
@@ -97,9 +109,60 @@ def emby_login(session: requests.Session, base_url: str,
     r.raise_for_status()
     data = r.json()
     token = data.get("AccessToken")
-    if not token:
-        raise RuntimeError("שרת Emby לא החזיר AccessToken")
-    return token
+    user_id = (data.get("User") or {}).get("Id")
+    if not token or not user_id:
+        raise RuntimeError("שרת Emby לא החזיר AccessToken/UserId")
+    return token, user_id
+
+
+def emby_get_user_id(session: requests.Session, base_url: str, token: str) -> str:
+    """משיג UserId מתוך טוקן קיים (Users/Me)."""
+    r = session.get(f"{base_url.rstrip('/')}/Users/Me",
+                    headers={"X-Emby-Token": token}, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    return r.json()["Id"]
+
+
+def emby_playback_url(session: requests.Session, base_url: str, token: str,
+                      user_id: str, item_id: str) -> Tuple[Optional[str], str]:
+    """מחזיר (DirectStreamUrl, container) דרך PlaybackInfo - עוקף את ההגבלה
+    על /Items/{id}/Download כשיש למשתמש הרשאת Playback."""
+    url = f"{base_url.rstrip('/')}/Items/{item_id}/PlaybackInfo?UserId={user_id}"
+    headers = {"X-Emby-Token": token, "Content-Type": "application/json"}
+    payload = {
+        "UserId": user_id,
+        "MaxStreamingBitrate": 140_000_000,
+        "AutoOpenLiveStream": True,
+        "MediaSourceId": f"mediasource_{item_id}",
+        "AllowVideoStreamCopy": True,
+        "AllowAudioStreamCopy": True,
+        "DeviceProfile": {
+            "MaxStreamingBitrate": 140_000_000,
+            "DirectPlayProfiles": [{
+                "Container": "mp4,mkv,webm,ts,m4v,mov,avi",
+                "Type": "Video",
+                "VideoCodec": "h264,hevc,vp8,vp9,av1,mpeg4",
+                "AudioCodec": "aac,mp3,ac3,eac3,opus,vorbis,flac",
+            }],
+            "TranscodingProfiles": [],
+            "ContainerProfiles": [],
+            "CodecProfiles": [],
+            "SubtitleProfiles": [],
+        },
+    }
+    r = session.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    if r.status_code != 200:
+        return None, ""
+    sources = r.json().get("MediaSources") or []
+    if not sources:
+        return None, ""
+    src = sources[0]
+    direct = src.get("DirectStreamUrl")
+    if not direct:
+        return None, ""
+    if direct.startswith("/"):
+        direct = base_url.rstrip("/") + direct
+    return direct, src.get("Container") or "mp4"
 
 
 def emby_get_items(session: requests.Session, base_url: str, token: str,
@@ -143,9 +206,11 @@ def expand_path(p: str) -> Path:
 # Main fetch logic
 
 def fetch_series(session: requests.Session, base_url: str, token: str,
+                 user_id: str,
                  parent_id: Optional[str], out_dir: Path,
                  skip_existing: bool = False,
-                 series_name: Optional[str] = None) -> None:
+                 series_name: Optional[str] = None,
+                 use_download_endpoint: bool = False) -> None:
     if series_name:
         print(f"מחפש סדרה בשם: {series_name}")
         series_items = emby_get_items(
@@ -178,40 +243,76 @@ def fetch_series(session: requests.Session, base_url: str, token: str,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, series in enumerate(series_items, start=1):
-        series_name = series.get("Name") or "סדרה ללא שם"
+        s_name = series.get("Name") or "סדרה ללא שם"
         series_id = series["Id"]
-        safe_name = sanitize_filename(series_name)
+        safe_name = sanitize_filename(s_name)
         out_path = out_dir / f"{safe_name}.json"
 
         if skip_existing and out_path.exists():
-            print(f"[{idx}/{len(series_items)}] דילוג (קיים): {series_name}")
+            print(f"[{idx}/{len(series_items)}] דילוג (קיים): {s_name}")
             continue
 
-        print(f"[{idx}/{len(series_items)}] מעבד: {series_name} (Id={series_id})")
+        print(f"[{idx}/{len(series_items)}] מעבד: {s_name} (Id={series_id})")
 
         episodes_list: List[Dict[str, str]] = []
-        seasons = emby_get_items(
+
+        # Dedup seasons by IndexNumber (Emby sometimes returns duplicates
+        # when the same season appears under multiple paths).
+        seasons_raw = emby_get_items(
             session, base_url, token, series_id, "Season", limit=200
         )
+        seen_seasons: set = set()
+        seasons = []
+        for sea in sorted(seasons_raw,
+                          key=lambda x: (x.get("IndexNumber", 0), x.get("Id"))):
+            n = sea.get("IndexNumber", 0)
+            if n in seen_seasons:
+                continue
+            seen_seasons.add(n)
+            seasons.append(sea)
 
+        failed = 0
         for season in seasons:
             season_number = season.get("IndexNumber", 1)
             season_id = season["Id"]
             season_label = f"עונה {season_number}"
 
-            episodes = emby_get_items(
-                session, base_url, token, season_id, "Episode", limit=2000
+            episodes_raw = emby_get_items(
+                session, base_url, token, season_id, "Episode", limit=5000
             )
+            seen_eps: set = set()
+            episodes = []
+            for e in sorted(episodes_raw,
+                            key=lambda x: (x.get("IndexNumber", 0), x.get("Id"))):
+                n = e.get("IndexNumber", 0)
+                if n in seen_eps:
+                    continue
+                seen_eps.add(n)
+                episodes.append(e)
 
             for episode in episodes:
                 episode_number = episode.get("IndexNumber", 0)
                 episode_id = episode["Id"]
-                link = (
-                    f"{base_url.rstrip('/')}/Items/{episode_id}"
-                    f"/Download?X-Emby-Token={token}"
-                )
+
+                if use_download_endpoint:
+                    link = (
+                        f"{base_url.rstrip('/')}/Items/{episode_id}"
+                        f"/Download?X-Emby-Token={token}"
+                    )
+                    container = "mkv"
+                else:
+                    link, container = emby_playback_url(
+                        session, base_url, token, user_id, episode_id
+                    )
+                    if not link:
+                        failed += 1
+                        continue
+
+                ext = container if container in (
+                    "mp4", "mkv", "webm", "m4v", "mov", "ts", "avi"
+                ) else "mp4"
                 file_name = sanitize_filename(
-                    f"{series_name} {season_label} פרק {episode_number}.mkv"
+                    f"{s_name} {season_label} פרק {episode_number}.{ext}"
                 )
                 episodes_list.append({
                     "file_name": file_name,
@@ -221,7 +322,8 @@ def fetch_series(session: requests.Session, base_url: str, token: str,
         with out_path.open("w", encoding="utf-8") as f_out:
             json.dump(episodes_list, f_out, ensure_ascii=False, indent=2)
 
-        print(f"    -> נשמר {out_path.name} ({len(episodes_list)} פרקים)")
+        suffix = f" ({failed} כשלו)" if failed else ""
+        print(f"    -> נשמר {out_path.name} ({len(episodes_list)} פרקים){suffix}")
 
 
 # ----------------------------------------------------------------------------
@@ -249,6 +351,8 @@ def parse_args() -> argparse.Namespace:
                    help="דלג על סדרות שכבר נשמרו ל-JSON")
     p.add_argument("--save-token", action="store_true",
                    help="שמור את ה-token לקובץ ההגדרות אחרי לוגין מוצלח")
+    p.add_argument("--use-download-endpoint", action="store_true",
+                   help="השתמש ב-/Items/{id}/Download (דורש EnableContentDownloading) במקום PlaybackInfo")
     return p.parse_args()
 
 
@@ -263,10 +367,15 @@ def main() -> int:
         return 2
 
     token = args.token or config.get("token")
+    user_id = config.get("user_id")
     username = args.username or config.get("username")
     password = args.password or config.get("password")
 
     session = build_session()
+    if not HAS_CLOUDSCRAPER:
+        print("[!] שים לב: cloudscraper לא מותקן. אם השרת מאחורי Cloudflare ייתכן שתחסם.",
+              file=sys.stderr)
+        print("    התקנה: pip install cloudscraper", file=sys.stderr)
 
     if not token:
         if not (username and password):
@@ -274,16 +383,25 @@ def main() -> int:
             return 2
         print(f"מתחבר ל-{base_url} כ-{username} ...")
         try:
-            token = emby_login(session, base_url, username, password)
+            token, user_id = emby_login(session, base_url, username, password)
         except requests.HTTPError as e:
             print(f"[!] לוגין נכשל: {e}", file=sys.stderr)
             return 1
         print("התחברות הצליחה.")
         if args.save_token or not config.get("token"):
-            config.update({"base_url": base_url, "username": username, "token": token})
+            config.update({
+                "base_url": base_url, "username": username,
+                "token": token, "user_id": user_id,
+            })
             config.pop("password", None)
             save_config(config_path, config)
             print(f"Token נשמר ב-{config_path}")
+    elif not user_id:
+        try:
+            user_id = emby_get_user_id(session, base_url, token)
+        except requests.HTTPError as e:
+            print(f"[!] לא הצלחתי להשיג UserId מהטוקן: {e}", file=sys.stderr)
+            return 1
 
     series_name = args.series_name
     if series_name:
@@ -293,9 +411,10 @@ def main() -> int:
     out_dir = expand_path(args.out_dir or config.get("out_dir") or DEFAULT_OUT_DIR)
 
     try:
-        fetch_series(session, base_url, token, parent_id, out_dir,
+        fetch_series(session, base_url, token, user_id, parent_id, out_dir,
                      skip_existing=args.skip_existing,
-                     series_name=series_name)
+                     series_name=series_name,
+                     use_download_endpoint=args.use_download_endpoint)
     except requests.HTTPError as e:
         print(f"[!] שגיאת HTTP מ-Emby: {e}", file=sys.stderr)
         return 1
