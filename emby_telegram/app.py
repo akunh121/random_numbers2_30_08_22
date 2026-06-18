@@ -380,7 +380,8 @@ class PipelineWorker(threading.Thread):
     def __init__(self, emby: EmbyClient, uploader: TelegramUploader,
                  download_dir: Path,
                  status_cb: Callable[[int, str, float], None],
-                 log_cb: Callable[[str], None]):
+                 log_cb: Callable[[str], None],
+                 delete_after_upload: bool = True):
         super().__init__(daemon=True)
         self.emby = emby
         self.uploader = uploader
@@ -390,6 +391,7 @@ class PipelineWorker(threading.Thread):
         self.log_cb = log_cb
         self.stop_flag = threading.Event()
         self.current_idx: Optional[int] = None
+        self.delete_after_upload = delete_after_upload
 
     def enqueue(self, jobs: List[Tuple[int, Job]]) -> None:
         for j in jobs:
@@ -457,12 +459,15 @@ class PipelineWorker(threading.Thread):
             self.log_cb(f"[{job.title}] העלאה נכשלה: {e}")
             raise
 
-        # Delete video
-        try:
-            dest.unlink()
-            self.log_cb(f"[{job.title}] קובץ נמחק")
-        except OSError as e:
-            self.log_cb(f"[{job.title}] לא הצלחתי למחוק: {e}")
+        # Delete video (if enabled)
+        if self.delete_after_upload:
+            try:
+                dest.unlink()
+                self.log_cb(f"[{job.title}] קובץ נמחק")
+            except OSError as e:
+                self.log_cb(f"[{job.title}] לא הצלחתי למחוק: {e}")
+        else:
+            self.log_cb(f"[{job.title}] קובץ נשמר: {dest}")
 
         # Subtitles - download and upload each text-format sub
         if subs:
@@ -489,7 +494,7 @@ class PipelineWorker(threading.Thread):
                 except Exception as e:
                     self.log_cb(f"[{job.title}] כתוביות {lang} נכשלו: {e}")
                 finally:
-                    if sub_dest.exists():
+                    if self.delete_after_upload and sub_dest.exists():
                         try: sub_dest.unlink()
                         except OSError: pass
 
@@ -580,11 +585,19 @@ class App:
         self.v_dldir = tk.StringVar(value=self.cfg.get(
             "download_dir", str(DOWNLOAD_DIR_DEFAULT)))
         row = ttk.Frame(dl); row.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row, text=b("תיקייה זמנית"), width=14).pack(side=tk.RIGHT)
+        ttk.Label(row, text=b("תיקיית הורדה"), width=14).pack(side=tk.RIGHT)
         ttk.Entry(row, textvariable=self.v_dldir).pack(
             side=tk.RIGHT, fill=tk.X, expand=True)
         ttk.Button(row, text=b("בחר..."),
                    command=self._choose_dl_dir).pack(side=tk.RIGHT, padx=4)
+
+        # Delete after upload checkbox
+        self.v_delete = tk.BooleanVar(
+            value=bool(self.cfg.get("delete_after_upload", True)))
+        row2 = ttk.Frame(dl); row2.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Checkbutton(row2,
+                        text=b("מחק קובץ מהדיסק אחרי העלאה מוצלחת"),
+                        variable=self.v_delete).pack(side=tk.RIGHT, padx=4)
 
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
@@ -613,6 +626,7 @@ class App:
             "bot_token": self.v_bot_token.get().strip(),
             "chat_id": self.v_chat.get().strip(),
             "download_dir": self.v_dldir.get().strip(),
+            "delete_after_upload": bool(self.v_delete.get()),
         })
         save_config(self.cfg)
         messagebox.showinfo(b("נשמר"), b("ההגדרות נשמרו ל-") + str(CONFIG_PATH))
@@ -929,6 +943,7 @@ class App:
         self.worker = PipelineWorker(
             emby=self.emby, uploader=uploader, download_dir=dl_dir,
             status_cb=self._on_status, log_cb=self._log,
+            delete_after_upload=bool(self.v_delete.get()),
         )
         self.worker.enqueue([(i, j) for i, j in enumerate(self.jobs)])
         self.worker.start()
