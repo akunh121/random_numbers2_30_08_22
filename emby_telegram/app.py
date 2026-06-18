@@ -360,6 +360,25 @@ class TelegramUploader:
             )
 
 
+class LocalNoopUploader:
+    """Stand-in for TelegramUploader when running in 'local only' mode.
+    Skips the upload step so files just get downloaded to disk."""
+    def __init__(self):
+        pass
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def upload(self, file_path: Path, caption: str,
+               progress_cb: Callable[[int, int], None]) -> None:
+        # No-op: file is already on disk after download.
+        size = file_path.stat().st_size
+        progress_cb(size, size)
+
+
 # ============================================================================
 # Job model
 
@@ -509,21 +528,57 @@ class App:
         self.cfg = load_config()
         self.emby: Optional[EmbyClient] = None
         self.worker: Optional[PipelineWorker] = None
+        self.jobs: List[Job] = []
+        self.tree_items: Dict[str, Dict[str, Any]] = {}
+        self._stats_t0: Optional[float] = None
 
         self.root = tk.Tk()
         self.root.title("Emby → Telegram Pipeline")
-        self.root.geometry("1100x720")
+        geom = self.cfg.get("window_geometry") or "1180x780"
+        self.root.geometry(geom)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        # Theme + fonts
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        import tkinter.font as tkfont
+        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
+            try:
+                tkfont.nametofont(name).configure(size=11)
+            except tk.TclError:
+                pass
+        try:
+            tkfont.nametofont("TkFixedFont").configure(size=10)
+        except tk.TclError:
+            pass
+        # Status row colors
+        style.configure("Done.Treeview.Item", foreground="#1b5e20")
+        style.map("TButton", foreground=[("active", "#0d47a1")])
+        style.configure("Accent.TButton", foreground="white",
+                        background="#1976d2", borderwidth=0, padding=6)
+        style.map("Accent.TButton",
+                  background=[("active", "#0d47a1"), ("pressed", "#0a3a8a")])
+        style.configure("Danger.TButton", foreground="white",
+                        background="#c62828", borderwidth=0, padding=6)
+        style.map("Danger.TButton",
+                  background=[("active", "#b71c1c"), ("pressed", "#8d0000")])
+        style.configure("Treeview", rowheight=24)
+
+        # Main layout: notebook (top) + status bar (bottom)
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
 
         self._build_config_tab()
         self._build_browse_tab()
         self._build_queue_tab()
         self._build_log_tab()
+        self._build_status_bar()
 
-        self.jobs: List[Job] = []  # selected items waiting to run
-        self.tree_items: Dict[str, Dict[str, Any]] = {}  # tree node id -> item dict
+        # Live tick to update stats
+        self.root.after(500, self._tick_stats)
 
     # ---- Config tab ----
     def _build_config_tab(self) -> None:
@@ -551,10 +606,12 @@ class App:
         self.v_mode = tk.StringVar(value=self.cfg.get("tg_mode", "bot"))
         mr = ttk.Frame(tg); mr.pack(fill=tk.X, padx=6, pady=2)
         ttk.Label(mr, text=b("מצב"), width=14).pack(side=tk.RIGHT)
-        ttk.Radiobutton(mr, text=b("בוט (עד 50MB)"), variable=self.v_mode,
-                        value="bot").pack(side=tk.RIGHT)
         ttk.Radiobutton(mr, text=b("חשבון משתמש (עד 2GB)"), variable=self.v_mode,
-                        value="user").pack(side=tk.RIGHT)
+                        value="user").pack(side=tk.RIGHT, padx=4)
+        ttk.Radiobutton(mr, text=b("בוט (עד 50MB)"), variable=self.v_mode,
+                        value="bot").pack(side=tk.RIGHT, padx=4)
+        ttk.Radiobutton(mr, text=b("מקומי (בלי טלגרם)"), variable=self.v_mode,
+                        value="local").pack(side=tk.RIGHT, padx=4)
 
         self.v_api_id = tk.StringVar(value=str(self.cfg.get("api_id", "")))
         self.v_api_hash = tk.StringVar(value=self.cfg.get("api_hash", ""))
@@ -867,37 +924,164 @@ class App:
         f = ttk.Frame(self.notebook)
         self.notebook.add(f, text=b("תור"))
 
+        # Overall progress bar at top
+        topbar = ttk.Frame(f); topbar.pack(fill=tk.X, padx=6, pady=(4, 0))
+        self.v_overall_text = tk.StringVar(value="")
+        ttk.Label(topbar, textvariable=self.v_overall_text,
+                  foreground="#555").pack(side=tk.RIGHT, padx=4)
+        self.overall_progress = ttk.Progressbar(
+            topbar, orient="horizontal", mode="determinate", maximum=100)
+        self.overall_progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
+
         cols = ("status", "progress")
         self.qtree = ttk.Treeview(f, columns=cols, show="tree headings")
-        self.qtree.heading("#0", text=b("שם"))
-        self.qtree.heading("status", text=b("סטטוס"))
-        self.qtree.heading("progress", text=b("התקדמות"))
+        self.qtree.heading("#0", text=b("שם"), anchor="e")
+        self.qtree.heading("status", text=b("סטטוס"), anchor="e")
+        self.qtree.heading("progress", text=b("התקדמות"), anchor="e")
         self.qtree.column("#0", width=600, anchor="e")
-        self.qtree.column("status", width=240, anchor="e")
-        self.qtree.column("progress", width=120, anchor="e")
-        self.qtree.heading("#0", anchor="e")
-        self.qtree.heading("status", anchor="e")
-        self.qtree.heading("progress", anchor="e")
+        self.qtree.column("status", width=260, anchor="e")
+        self.qtree.column("progress", width=110, anchor="e")
+        # Color tags by state
+        self.qtree.tag_configure("done", background="#dcedc8", foreground="#1b5e20")
+        self.qtree.tag_configure("active", background="#bbdefb", foreground="#0d47a1")
+        self.qtree.tag_configure("error", background="#ffcdd2", foreground="#b71c1c")
+        self.qtree.tag_configure("pending", foreground="#666666")
         self.qtree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
+        # Right-click menu for queue
+        self.qmenu = tk.Menu(self.qtree, tearoff=0)
+        self.qmenu.add_command(label=b("הסר מהתור"), command=self._remove_selected)
+        self.qmenu.add_command(label=b("נסה שוב"), command=self._retry_selected)
+        self.qtree.bind("<Button-3>", self._show_qmenu)
+        self.qtree.bind("<Button-2>", self._show_qmenu)  # macOS
+
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Button(bot, text=b("▶ התחל"), command=self._start_worker).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Button(bot, text=b("✕ נקה תור"), command=self._clear_queue).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Button(bot, text=b("⏹ עצור"), command=self._stop_worker).pack(
-            side=tk.RIGHT, padx=4)
+        ttk.Button(bot, text=b("▶ התחל"), command=self._start_worker,
+                   style="Accent.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bot, text=b("⏹ עצור"), command=self._stop_worker,
+                   style="Danger.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bot, text=b("הסר נבחרים"),
+                   command=self._remove_selected).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bot, text=b("נקה הושלמו"),
+                   command=self._clear_done).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bot, text=b("✕ נקה תור"),
+                   command=self._clear_queue).pack(side=tk.RIGHT, padx=4)
         self.v_qstatus = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self.v_qstatus,
-                  foreground="gray").pack(side=tk.RIGHT, padx=12)
+                  foreground="#555").pack(side=tk.RIGHT, padx=12)
+
+    def _status_tag(self, status: str, progress: float) -> str:
+        # status may be already bidi-reordered on Linux, so check both
+        # the original Hebrew words and their character-reversed forms.
+        s = status
+        DONE = ("הושלם", "םלשוה", "✓", "completed", "done")
+        ERR = ("שגיאה", "האיגש", "נכשל", "לשכנ", "error", "FAIL", "TOO_BIG")
+        ACTIVE = ("מוריד", "דירומ", "מעלה", "הלעמ",
+                  "שולף", "ףלוש", "כתוביות", "תויבותכ")
+        if any(k in s for k in DONE):
+            return "done"
+        if any(k in s for k in ERR):
+            return "error"
+        if any(k in s for k in ACTIVE) or 0 < progress < 100:
+            return "active"
+        return "pending"
 
     def _refresh_queue(self) -> None:
         for c in self.qtree.get_children():
             self.qtree.delete(c)
         for i, j in enumerate(self.jobs):
-            self.qtree.insert("", "end", iid=str(i), text=j.title,
-                              values=(j.status, f"{j.progress:.0f}%"))
+            tag = self._status_tag(j.status, j.progress)
+            self.qtree.insert("", "end", iid=str(i), text=b(j.title),
+                              values=(j.status, f"{j.progress:.0f}%"),
+                              tags=(tag,))
+        self._update_overall()
         self.v_qstatus.set(b(f"{len(self.jobs)} פריטים בתור"))
+
+    def _show_qmenu(self, event) -> None:
+        iid = self.qtree.identify_row(event.y)
+        if iid and iid not in self.qtree.selection():
+            self.qtree.selection_set(iid)
+        try:
+            self.qmenu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.qmenu.grab_release()
+
+    def _remove_selected(self) -> None:
+        sel = sorted([int(s) for s in self.qtree.selection() if s.isdigit()],
+                     reverse=True)
+        if not sel:
+            return
+        if self.worker and self.worker.is_alive() and \
+           self.worker.current_idx in sel:
+            messagebox.showwarning(b("פעיל"),
+                                   b("הפריט הזה רץ עכשיו - אי אפשר להסיר"))
+            return
+        for i in sel:
+            if 0 <= i < len(self.jobs):
+                del self.jobs[i]
+        self._refresh_queue()
+
+    def _clear_done(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showwarning(b("פעיל"),
+                                   b("אי אפשר לערוך את התור בזמן עבודה"))
+            return
+        self.jobs = [j for j in self.jobs if "הושלם" not in j.status]
+        self._refresh_queue()
+
+    def _retry_selected(self) -> None:
+        sel = [int(s) for s in self.qtree.selection() if s.isdigit()]
+        for i in sel:
+            if 0 <= i < len(self.jobs):
+                self.jobs[i].status = "ממתין"
+                self.jobs[i].progress = 0.0
+                self.jobs[i].error = None
+        self._refresh_queue()
+
+    def _update_overall(self) -> None:
+        if not self.jobs:
+            self.overall_progress["value"] = 0
+            self.v_overall_text.set("")
+            return
+        done = sum(1 for j in self.jobs if "הושלם" in j.status)
+        err = sum(1 for j in self.jobs if "שגיאה" in j.status or "נכשל" in j.status)
+        running = sum(1 for j in self.jobs
+                      if 0 < j.progress < 100 and "הושלם" not in j.status)
+        # Overall percent: sum of progress / (n*100)
+        total = len(self.jobs) * 100
+        cur = sum(j.progress if "הושלם" in j.status else min(j.progress, 100)
+                  for j in self.jobs)
+        # Completed contributes 100, others contribute progress
+        cur = sum(100 if "הושלם" in j.status else j.progress for j in self.jobs)
+        pct = (cur / total * 100) if total else 0
+        self.overall_progress["value"] = pct
+        eta = ""
+        if self._stats_t0 and done:
+            elapsed = time.time() - self._stats_t0
+            per_item = elapsed / done
+            left = len(self.jobs) - done
+            eta_sec = int(per_item * left)
+            eta = f" · ETA {eta_sec//60}m{eta_sec%60:02d}s"
+        self.v_overall_text.set(
+            b(f"{pct:.1f}% · הושלמו {done}/{len(self.jobs)} · בעבודה {running}"
+              f" · שגיאות {err}{eta}"))
+
+    def _tick_stats(self) -> None:
+        try:
+            self._update_overall()
+            # Status bar updates
+            if self.emby:
+                self.v_sb_emby.set(b("Emby ✓"))
+            else:
+                self.v_sb_emby.set(b("Emby ✗"))
+            running = self.worker and self.worker.is_alive()
+            mode = self.v_mode.get() if hasattr(self, "v_mode") else "?"
+            mode_text = {"bot":"בוט","user":"משתמש","local":"מקומי"}.get(mode, "?")
+            self.v_sb_mode.set(b(f"מצב: {mode_text}"))
+            self.v_sb_worker.set(b("Worker: רץ" if running else "Worker: עצור"))
+        except Exception:
+            pass
+        self.root.after(800, self._tick_stats)
 
     def _clear_queue(self) -> None:
         if self.worker and self.worker.is_alive():
@@ -915,36 +1099,41 @@ class App:
             messagebox.showinfo(b("פעיל"), b("ה-worker כבר רץ")); return
 
         mode = self.v_mode.get()
-        api_id_s = self.v_api_id.get().strip()
-        if not api_id_s or not self.v_api_hash.get().strip():
-            messagebox.showerror("Telegram", b("חסרים API ID / API Hash")); return
-        try:
-            api_id = int(api_id_s)
-        except ValueError:
-            messagebox.showerror("Telegram", b("API ID חייב להיות מספר")); return
-
-        if mode == "bot" and not self.v_bot_token.get().strip():
-            messagebox.showerror("Telegram", b("חסר Bot Token")); return
-        if mode == "user" and not self.v_phone.get().strip():
-            messagebox.showerror("Telegram", b("חסר מספר טלפון")); return
-
-        uploader = TelegramUploader(
-            mode=mode, api_id=api_id,
-            api_hash=self.v_api_hash.get().strip(),
-            bot_token=self.v_bot_token.get().strip() or None,
-            phone=self.v_phone.get().strip() or None,
-            chat_id=self.v_chat.get().strip() or "me",
-        )
+        if mode == "local":
+            uploader = LocalNoopUploader()
+        else:
+            api_id_s = self.v_api_id.get().strip()
+            if not api_id_s or not self.v_api_hash.get().strip():
+                messagebox.showerror("Telegram", b("חסרים API ID / API Hash")); return
+            try:
+                api_id = int(api_id_s)
+            except ValueError:
+                messagebox.showerror("Telegram", b("API ID חייב להיות מספר")); return
+            if mode == "bot" and not self.v_bot_token.get().strip():
+                messagebox.showerror("Telegram", b("חסר Bot Token")); return
+            if mode == "user" and not self.v_phone.get().strip():
+                messagebox.showerror("Telegram", b("חסר מספר טלפון")); return
+            uploader = TelegramUploader(
+                mode=mode, api_id=api_id,
+                api_hash=self.v_api_hash.get().strip(),
+                bot_token=self.v_bot_token.get().strip() or None,
+                phone=self.v_phone.get().strip() or None,
+                chat_id=self.v_chat.get().strip() or "me",
+            )
 
         dl_dir = Path(self.v_dldir.get().strip() or DOWNLOAD_DIR_DEFAULT)
         dl_dir.mkdir(parents=True, exist_ok=True)
 
         self._refresh_queue()
+        # In local mode we don't want to delete the file (the whole point is
+        # to keep it locally).
+        delete_after = bool(self.v_delete.get()) and mode != "local"
         self.worker = PipelineWorker(
             emby=self.emby, uploader=uploader, download_dir=dl_dir,
             status_cb=self._on_status, log_cb=self._log,
-            delete_after_upload=bool(self.v_delete.get()),
+            delete_after_upload=delete_after,
         )
+        self._stats_t0 = time.time()
         self.worker.enqueue([(i, j) for i, j in enumerate(self.jobs)])
         self.worker.start()
         self.v_qstatus.set(b(f"רץ ({len(self.jobs)} בתור)"))
@@ -960,7 +1149,9 @@ class App:
         self.jobs[idx].status = text
         self.jobs[idx].progress = pct
         try:
-            self.qtree.item(str(idx), values=(text, f"{pct:.0f}%"))
+            tag = self._status_tag(text, pct)
+            self.qtree.item(str(idx), values=(text, f"{pct:.0f}%"),
+                            tags=(tag,))
         except tk.TclError:
             pass
 
@@ -978,6 +1169,30 @@ class App:
             self.txt_log.see(tk.END)
         except tk.TclError:
             pass
+
+    # ---- Status bar ----
+    def _build_status_bar(self) -> None:
+        sb = ttk.Frame(self.root, relief="sunken", padding=(8, 3))
+        sb.pack(side=tk.BOTTOM, fill=tk.X)
+        self.v_sb_emby = tk.StringVar(value=b("Emby ✗"))
+        self.v_sb_mode = tk.StringVar(value=b("מצב: ?"))
+        self.v_sb_worker = tk.StringVar(value=b("Worker: עצור"))
+        ttk.Label(sb, textvariable=self.v_sb_emby).pack(side=tk.RIGHT, padx=8)
+        ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
+        ttk.Label(sb, textvariable=self.v_sb_mode).pack(side=tk.RIGHT, padx=8)
+        ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
+        ttk.Label(sb, textvariable=self.v_sb_worker).pack(side=tk.RIGHT, padx=8)
+
+    def _on_close(self) -> None:
+        try:
+            geom = self.root.geometry()
+            self.cfg["window_geometry"] = geom
+            save_config(self.cfg)
+        except Exception:
+            pass
+        if self.worker and self.worker.is_alive():
+            self.worker.stop()
+        self.root.destroy()
 
     # ---- Run ----
     def run(self) -> None:
