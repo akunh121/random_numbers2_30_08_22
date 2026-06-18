@@ -113,6 +113,33 @@ def human_size(n: int) -> str:
     return f"{n:.1f}PB"
 
 
+def notify_system(title: str, message: str) -> None:
+    """Best-effort cross-platform desktop notification.
+    Tries notify-send (Linux), osascript (macOS), or a tk bell as fallback."""
+    try:
+        if sys.platform.startswith("linux"):
+            import subprocess as _sp
+            _sp.Popen(["notify-send", title, message],
+                      stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            return
+        if sys.platform == "darwin":
+            import subprocess as _sp
+            esc = message.replace('"', '\\"')
+            _sp.Popen(["osascript", "-e",
+                       f'display notification "{esc}" with title "{title}"'],
+                      stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            return
+        if sys.platform.startswith("win"):
+            try:
+                from win10toast import ToastNotifier  # type: ignore
+                ToastNotifier().show_toast(title, message, duration=5,
+                                            threaded=True)
+            except ImportError:
+                pass
+    except Exception:
+        pass
+
+
 # ============================================================================
 # Emby client
 
@@ -430,6 +457,7 @@ class Job:
     rel_dir: str = ""   # מבנה תיקיות מסודר (יחסי ל-download_dir)
     status: str = "ממתין"
     progress: float = 0.0
+    size_bytes: int = 0  # ידוע אחרי PlaybackInfo הראשון
     error: Optional[str] = None
 
 
@@ -545,6 +573,12 @@ class PipelineWorker(threading.Thread):
         except Exception:
             pass
         self.log_cb(b("Worker נעצר"))
+        # Cross-platform "queue finished" notification.
+        try:
+            notify_system("Emby Pipeline",
+                          "התור הסתיים — כל הפריטים נסתיימו")
+        except Exception:
+            pass
 
     def _upload_with_optional_split(self, idx: int, job: Job,
                                      dest: Path, up_prog) -> None:
@@ -597,6 +631,8 @@ class PipelineWorker(threading.Thread):
         if not info:
             raise RuntimeError(b("PlaybackInfo החזיר שגיאה"))
         url, container, size, subs = info
+        # Stash size on the job so the GUI can render it in the queue
+        job.size_bytes = size or 0
         if container not in ("mp4", "mkv", "webm", "m4v", "mov", "avi", "ts"):
             container = "mp4"
         file_name = sanitize(f"{job.file_basename}.{container}")
@@ -735,12 +771,15 @@ class App:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
 
+        self._build_menubar()
         self._build_header()
-        self._build_config_tab()
-        self._build_browse_tab()
-        self._build_queue_tab()
-        self._build_history_tab()
+        # Tabs are added in reverse so the natural RTL order has
+        # הגדרות at the right (where Hebrew reading starts).
         self._build_log_tab()
+        self._build_history_tab()
+        self._build_queue_tab()
+        self._build_browse_tab()
+        self._build_config_tab()
         self._build_status_bar()
         self._bind_shortcuts()
 
@@ -753,6 +792,7 @@ class App:
     # ---- Config tab ----
     def _build_config_tab(self) -> None:
         f = ttk.Frame(self.notebook)
+        self.tab_config = f
         self.notebook.add(f, text="⚙  " + b("הגדרות"))
 
         # Emby
@@ -922,7 +962,7 @@ class App:
             self.v_hdr_sub.set(b(f"מחובר כ-{self.v_user.get()} · "
                                  f"בחר תוכן בלשונית עיון ובחירה"))
             self._load_libraries()
-            self.notebook.select(1)
+            self.notebook.select(self.tab_browse)
         except Exception as e:
             self.v_status.set(b("נכשל"))
             self.v_hdr_sub.set(b("התחברות נכשלה"))
@@ -931,19 +971,22 @@ class App:
     # ---- Browse tab ----
     def _build_browse_tab(self) -> None:
         f = ttk.Frame(self.notebook)
+        self.tab_browse = f
         self.notebook.add(f, text="🔎  " + b("עיון ובחירה"))
 
+        # RTL search row: label and buttons on right, entry fills left
         top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
         ttk.Label(top, text=b("חיפוש:")).pack(side=tk.RIGHT)
+        ttk.Button(top, text="✕", width=3,
+                   command=lambda: (self.v_search.set(""), self._load_libraries())
+                   ).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(top, text=b("חפש"), command=self._do_search).pack(
+            side=tk.RIGHT, padx=2)
         self.v_search = tk.StringVar()
         ent = ttk.Entry(top, textvariable=self.v_search)
         ent.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
         ent.bind("<Return>", lambda e: self._do_search())
         self.search_entry = ent
-        ttk.Button(top, text=b("חפש"), command=self._do_search).pack(side=tk.RIGHT)
-        ttk.Button(top, text="✕", width=3,
-                   command=lambda: (self.v_search.set(""), self._load_libraries())
-                   ).pack(side=tk.RIGHT, padx=2)
 
         # Tree
         cols = ("type", "size")
@@ -1234,6 +1277,7 @@ class App:
     # ---- Queue tab ----
     def _build_queue_tab(self) -> None:
         f = ttk.Frame(self.notebook)
+        self.tab_queue = f
         self.notebook.add(f, text="📥  " + b("תור"))
 
         # Overall progress bar at top
@@ -1245,26 +1289,28 @@ class App:
             topbar, orient="horizontal", mode="determinate", maximum=100)
         self.overall_progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
 
-        # Filter row
+        # Filter row (RTL: label + ✕ on right, entry fills left)
         filterbar = ttk.Frame(f); filterbar.pack(fill=tk.X, padx=6, pady=(4, 0))
         self.v_qfilter = tk.StringVar()
         ttk.Label(filterbar, text=b("סנן:")).pack(side=tk.RIGHT)
-        fe = ttk.Entry(filterbar, textvariable=self.v_qfilter)
-        fe.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
-        fe.bind("<KeyRelease>", lambda e: self._refresh_queue())
         ttk.Button(filterbar, text="✕", width=3,
                    command=lambda: (self.v_qfilter.set(""),
                                     self._refresh_queue())
                    ).pack(side=tk.RIGHT, padx=2)
+        fe = ttk.Entry(filterbar, textvariable=self.v_qfilter)
+        fe.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
+        fe.bind("<KeyRelease>", lambda e: self._refresh_queue())
 
-        cols = ("status", "progress")
+        cols = ("status", "progress", "size")
         self.qtree = ttk.Treeview(f, columns=cols, show="tree headings")
         self.qtree.heading("#0", text=b("שם"), anchor="e")
         self.qtree.heading("status", text=b("סטטוס"), anchor="e")
         self.qtree.heading("progress", text=b("התקדמות"), anchor="e")
-        self.qtree.column("#0", width=600, anchor="e")
-        self.qtree.column("status", width=260, anchor="e")
-        self.qtree.column("progress", width=110, anchor="e")
+        self.qtree.heading("size", text=b("גודל"), anchor="e")
+        self.qtree.column("#0", width=550, anchor="e")
+        self.qtree.column("status", width=240, anchor="e")
+        self.qtree.column("progress", width=90, anchor="e")
+        self.qtree.column("size", width=90, anchor="e")
         # Color tags by state
         self.qtree.tag_configure("done", background="#dcedc8", foreground="#1b5e20")
         self.qtree.tag_configure("active", background="#bbdefb", foreground="#0d47a1")
@@ -1330,8 +1376,9 @@ class App:
             if flt and flt not in j.title:
                 continue
             tag = self._status_tag(j.status, j.progress)
+            sz = human_size(j.size_bytes) if j.size_bytes else "?"
             self.qtree.insert("", "end", iid=str(i), text=b(j.title),
-                              values=(j.status, f"{j.progress:.0f}%"),
+                              values=(j.status, f"{j.progress:.0f}%", sz),
                               tags=(tag,))
             shown += 1
         self._update_overall()
@@ -1340,7 +1387,7 @@ class App:
             self.qtree.insert(
                 "", "end",
                 text=b("⌥ התור ריק — עבור ללשונית 'עיון ובחירה' והוסף תוכן"),
-                values=("", ""), tags=("pending",))
+                values=("", "", ""), tags=("pending",))
             self.v_qstatus.set(b("התור ריק"))
         elif flt:
             self.v_qstatus.set(b(f"{shown}/{len(self.jobs)} פריטים (סינון פעיל)"))
@@ -1607,7 +1654,10 @@ class App:
         self.jobs[idx].progress = pct
         try:
             tag = self._status_tag(text, pct)
-            self.qtree.item(str(idx), values=(text, f"{pct:.0f}%"),
+            sz = human_size(self.jobs[idx].size_bytes) \
+                 if self.jobs[idx].size_bytes else "?"
+            self.qtree.item(str(idx),
+                            values=(text, f"{pct:.0f}%", sz),
                             tags=(tag,))
         except tk.TclError:
             pass
@@ -1615,6 +1665,7 @@ class App:
     # ---- Log tab ----
     def _build_log_tab(self) -> None:
         f = ttk.Frame(self.notebook)
+        self.tab_log = f
         self.notebook.add(f, text="📋  " + b("לוג"))
         self.txt_log = scrolledtext.ScrolledText(f, wrap=tk.WORD)
         self.txt_log.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
@@ -1626,6 +1677,147 @@ class App:
             self.txt_log.see(tk.END)
         except tk.TclError:
             pass
+
+    # ---- Menu bar ----
+    def _build_menubar(self) -> None:
+        mb = tk.Menu(self.root)
+        self.root.config(menu=mb)
+
+        m_file = tk.Menu(mb, tearoff=0)
+        mb.add_cascade(label=b("קובץ"), menu=m_file)
+        m_file.add_command(label=b("ייבא תור..."), command=self._import_queue)
+        m_file.add_command(label=b("ייצא תור..."), command=self._export_queue)
+        m_file.add_separator()
+        m_file.add_command(label=b("ייצא היסטוריה..."),
+                           command=self._export_history)
+        m_file.add_separator()
+        m_file.add_command(label=b("יציאה"), command=self._on_close,
+                           accelerator="Ctrl+Q")
+
+        m_view = tk.Menu(mb, tearoff=0)
+        mb.add_cascade(label=b("תצוגה"), menu=m_view)
+        self.v_dark = tk.BooleanVar(value=bool(self.cfg.get("dark_mode", False)))
+        m_view.add_checkbutton(label=b("ערכת נושא כהה"), variable=self.v_dark,
+                                command=self._apply_theme)
+
+        m_help = tk.Menu(mb, tearoff=0)
+        mb.add_cascade(label=b("עזרה"), menu=m_help)
+        m_help.add_command(label=b("קיצורי מקלדת"),
+                           command=self._show_shortcuts)
+        m_help.add_command(label=b("אודות"), command=self._show_about)
+
+    def _apply_theme(self) -> None:
+        dark = bool(self.v_dark.get())
+        self.cfg["dark_mode"] = dark
+        style = ttk.Style()
+        if dark:
+            bg, fg, sel = "#1e1e1e", "#e0e0e0", "#2a3f5f"
+            self.root.configure(bg=bg)
+            style.configure(".", background=bg, foreground=fg,
+                            fieldbackground="#2b2b2b")
+            style.configure("Treeview", background="#2b2b2b",
+                            foreground=fg, fieldbackground="#2b2b2b")
+            style.configure("TLabel", background=bg, foreground=fg)
+            style.configure("TFrame", background=bg)
+            style.configure("TLabelframe", background=bg, foreground=fg)
+            style.configure("TLabelframe.Label", background=bg, foreground=fg)
+            style.configure("TNotebook", background=bg)
+            style.configure("TNotebook.Tab", background="#2a2a2a",
+                            foreground=fg)
+            style.configure("Header.TLabel", foreground="#64b5f6")
+            style.map("Treeview", background=[("selected", sel)])
+        else:
+            self.root.configure(bg=self.root.winfo_default_root_bg() if False
+                                else "")
+            try:
+                style.theme_use("clam")
+            except tk.TclError:
+                pass
+            style.configure(".", background="", foreground="",
+                            fieldbackground="white")
+            style.configure("Treeview", background="white",
+                            foreground="black", fieldbackground="white")
+            style.configure("Header.TLabel", foreground="#0d47a1")
+
+    # ---- File operations: import/export ----
+    def _export_queue(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title=b("ייצא תור"),
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+        data = [{
+            "title": j.title, "item_id": j.item_id,
+            "file_basename": j.file_basename, "rel_dir": j.rel_dir,
+            "status": j.status, "size_bytes": j.size_bytes,
+        } for j in self.jobs]
+        with open(path, "w", encoding="utf-8") as fp:
+            json.dump(data, fp, ensure_ascii=False, indent=2)
+        messagebox.showinfo(b("נשמר"), b(f"נשמרו {len(data)} פריטים"))
+
+    def _import_queue(self) -> None:
+        path = filedialog.askopenfilename(
+            title=b("ייבא תור"),
+            filetypes=[("JSON", "*.json"), ("All", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+        except Exception as e:
+            messagebox.showerror(b("שגיאה"), b(f"קריאה נכשלה: {e}"))
+            return
+        added = 0
+        for d in data:
+            if any(j.item_id == d.get("item_id") for j in self.jobs):
+                continue
+            self.jobs.append(Job(
+                title=d.get("title", "?"),
+                item_id=d.get("item_id", ""),
+                file_basename=d.get("file_basename", "?"),
+                rel_dir=d.get("rel_dir", ""),
+                size_bytes=int(d.get("size_bytes", 0) or 0),
+            ))
+            added += 1
+        self._refresh_queue()
+        messagebox.showinfo(b("ייובא"), b(f"נוספו {added} פריטים חדשים"))
+
+    def _export_history(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title=b("ייצא היסטוריה"),
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json"), ("CSV", "*.csv")])
+        if not path:
+            return
+        history = self.cfg.get("history", [])
+        if path.lower().endswith(".csv"):
+            import csv
+            with open(path, "w", encoding="utf-8", newline="") as fp:
+                w = csv.writer(fp)
+                w.writerow(["title", "status", "ts", "elapsed", "reason"])
+                for e in history:
+                    w.writerow([e.get(k, "") for k in
+                                ("title", "status", "ts", "elapsed", "reason")])
+        else:
+            with open(path, "w", encoding="utf-8") as fp:
+                json.dump(history, fp, ensure_ascii=False, indent=2)
+        messagebox.showinfo(b("נשמר"), b(f"נשמרו {len(history)} פריטים"))
+
+    def _show_shortcuts(self) -> None:
+        messagebox.showinfo(b("קיצורי מקלדת"),
+            "Ctrl+Enter — התחל worker\n"
+            "Ctrl+.       — עצור worker\n"
+            "Ctrl+F       — מעבר לחיפוש\n"
+            "Ctrl+S       — שמור הגדרות\n"
+            "Ctrl+Q       — סגור אפליקציה\n"
+            "F5            — התחבר ל-Emby")
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(b("אודות"),
+            "Emby → Telegram Pipeline\n"
+            "מורידה תוכן מ-Emby, מארגנת בתיקיות, מעלה לטלגרם.\n"
+            "תומך ב-Smart Resume, Auto-Split, Retry, ועוד.")
 
     # ---- Header ----
     def _build_header(self) -> None:
@@ -1645,6 +1837,7 @@ class App:
     # ---- History tab ----
     def _build_history_tab(self) -> None:
         f = ttk.Frame(self.notebook)
+        self.tab_history = f
         self.notebook.add(f, text="📜  " + b("היסטוריה"))
 
         top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
@@ -1724,7 +1917,7 @@ class App:
 
     def _focus_search(self) -> None:
         try:
-            self.notebook.select(1)
+            self.notebook.select(self.tab_browse)
             self.search_entry.focus_set()
         except Exception:
             pass
@@ -1743,8 +1936,9 @@ class App:
         ttk.Label(sb, textvariable=self.v_sb_mode).pack(side=tk.RIGHT, padx=8)
         ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
         ttk.Label(sb, textvariable=self.v_sb_worker).pack(side=tk.RIGHT, padx=8)
+        ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
         ttk.Label(sb, textvariable=self.v_sb_hint,
-                  foreground="#888").pack(side=tk.LEFT, padx=8)
+                  foreground="#888").pack(side=tk.RIGHT, padx=8)
 
     def _on_close(self) -> None:
         try:
