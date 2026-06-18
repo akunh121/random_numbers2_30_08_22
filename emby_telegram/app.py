@@ -297,7 +297,9 @@ class EmbyClient:
 
 def stream_download(session, url: str, dest: Path,
                     progress_cb: Callable[[int, int], None],
-                    resume: bool = False) -> None:
+                    resume: bool = False,
+                    rate_limit_bps: int = 0) -> None:
+    """Download URL to dest. Optionally rate-limit to rate_limit_bps bytes/sec."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     headers = {}
     mode = "wb"
@@ -336,18 +338,33 @@ def stream_download(session, url: str, dest: Path,
                 mode = "wb"; already = 0
             r.raise_for_status()
             total = int(r.headers.get("content-length") or 0) + already
-        _write_stream(r, dest, mode, already, total, progress_cb)
+        _write_stream(r, dest, mode, already, total, progress_cb,
+                      rate_limit_bps=rate_limit_bps)
 
 
 def _write_stream(r, dest: Path, mode: str, already: int, total: int,
-                  progress_cb: Callable[[int, int], None]) -> None:
+                  progress_cb: Callable[[int, int], None],
+                  rate_limit_bps: int = 0) -> None:
     done = already
     last_emit = 0
+    win_start = time.time()
+    win_bytes = 0
     with dest.open(mode) as f:
         for chunk in r.iter_content(chunk_size=1024 * 1024):
             if chunk:
                 f.write(chunk)
                 done += len(chunk)
+                # Optional bandwidth limit using a 1-second sliding window
+                if rate_limit_bps > 0:
+                    win_bytes += len(chunk)
+                    elapsed = time.time() - win_start
+                    if elapsed >= 1.0:
+                        win_start = time.time()
+                        win_bytes = 0
+                    elif win_bytes >= rate_limit_bps:
+                        time.sleep(max(0, 1.0 - elapsed))
+                        win_start = time.time()
+                        win_bytes = 0
                 now = time.time()
                 if now - last_emit >= 0.3:
                     progress_cb(done, total)
@@ -480,6 +497,8 @@ class PipelineWorker(threading.Thread):
                  retry_count: int = 0,
                  retry_delay: int = 5,
                  download_subtitles: bool = True,
+                 rate_limit_kbps: int = 0,
+                 concurrent_workers: int = 1,
                  history_cb: Optional[Callable[[Dict[str, Any]], None]] = None):
         super().__init__(daemon=True)
         self.emby = emby
@@ -497,6 +516,11 @@ class PipelineWorker(threading.Thread):
         self.retry_count = max(0, int(retry_count))
         self.retry_delay = max(1, int(retry_delay))
         self.download_subtitles = bool(download_subtitles)
+        # KB/s → bytes/sec
+        self.rate_limit_bps = max(0, int(rate_limit_kbps)) * 1024
+        self.concurrent_workers = max(1, min(4, int(concurrent_workers)))
+        # Lock to serialize uploads (pyrogram is not safe across threads)
+        self._upload_lock = threading.Lock()
         self.history_cb = history_cb
 
     def enqueue(self, jobs: List[Tuple[int, Job]]) -> None:
@@ -515,10 +539,40 @@ class PipelineWorker(threading.Thread):
             self.log_cb(f"שגיאת Telegram: {e}")
             return
 
+        # Spawn N concurrent download workers; they share the queue.
+        # Uploads are serialized by self._upload_lock inside _process.
+        if self.concurrent_workers > 1:
+            self.log_cb(b(f"מפעיל {self.concurrent_workers} עובדים במקביל"))
+            threads = []
+            for _ in range(self.concurrent_workers - 1):
+                t = threading.Thread(target=self._consume_loop, daemon=True)
+                t.start()
+                threads.append(t)
+            # main thread also consumes
+            self._consume_loop()
+            for t in threads:
+                t.join(timeout=0.1)
+        else:
+            self._consume_loop()
+
+        try:
+            self.uploader.stop()
+        except Exception:
+            pass
+        self.log_cb(b("Worker נעצר"))
+        try:
+            notify_system("Emby Pipeline",
+                          "התור הסתיים — כל הפריטים נסתיימו")
+        except Exception:
+            pass
+
+    def _consume_loop(self) -> None:
         while not self.stop_flag.is_set():
             try:
                 idx, job = self.q.get(timeout=0.5)
             except queue.Empty:
+                if self.concurrent_workers > 1:
+                    return
                 continue
             self.current_idx = idx
             attempts = 0
@@ -567,18 +621,6 @@ class PipelineWorker(threading.Thread):
                         })
                     break
             self.q.task_done()
-
-        try:
-            self.uploader.stop()
-        except Exception:
-            pass
-        self.log_cb(b("Worker נעצר"))
-        # Cross-platform "queue finished" notification.
-        try:
-            notify_system("Emby Pipeline",
-                          "התור הסתיים — כל הפריטים נסתיימו")
-        except Exception:
-            pass
 
     def _upload_with_optional_split(self, idx: int, job: Job,
                                      dest: Path, up_prog) -> None:
@@ -656,7 +698,8 @@ class PipelineWorker(threading.Thread):
                 pct = (done / total * 100) if total else 0
                 self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
             stream_download(self.emby.s, url, dest, dl_prog,
-                            resume=dest.exists())
+                            resume=dest.exists(),
+                            rate_limit_bps=self.rate_limit_bps)
 
         # Upload video (with size check / optional split)
         actual = dest.stat().st_size
@@ -665,7 +708,9 @@ class PipelineWorker(threading.Thread):
             pct = (done / total * 100) if total else 0
             self.status_cb(idx, b(f"מעלה {human_size(done)}/{human_size(total)}"), pct)
         try:
-            self._upload_with_optional_split(idx, job, dest, up_prog)
+            # Pyrogram session is not thread-safe — serialize uploads
+            with self._upload_lock:
+                self._upload_with_optional_split(idx, job, dest, up_prog)
         except _SkippedError:
             # Skipped due to size: cleanup file and propagate up
             if self.delete_after_upload and dest.exists():
@@ -700,13 +745,15 @@ class PipelineWorker(threading.Thread):
                         pct = (done / total * 100) if total else 0
                         self.status_cb(
                             idx, b(f"כתוביות {lang} {human_size(done)}"), pct)
-                    stream_download(self.emby.s, sub["url"], sub_dest, sub_prog)
+                    stream_download(self.emby.s, sub["url"], sub_dest, sub_prog,
+                                    rate_limit_bps=self.rate_limit_bps)
                     self.status_cb(idx, b(f"מעלה כתוביות ({lang})"), 0)
-                    self.uploader.upload(
-                        sub_dest,
-                        caption=f"{job.title} — כתוביות [{lang}]",
-                        progress_cb=lambda d, t: None,
-                    )
+                    with self._upload_lock:
+                        self.uploader.upload(
+                            sub_dest,
+                            caption=f"{job.title} — כתוביות [{lang}]",
+                            progress_cb=lambda d, t: None,
+                        )
                     self.log_cb(f"[{job.title}] כתוביות {lang} נשלחו")
                 except Exception as e:
                     self.log_cb(f"[{job.title}] כתוביות {lang} נכשלו: {e}")
@@ -766,6 +813,8 @@ class App:
         style.map("Danger.TButton",
                   background=[("active", "#b71c1c"), ("pressed", "#8d0000")])
         style.configure("Treeview", rowheight=24)
+        # Place notebook tabs at the top-right (RTL natural)
+        style.configure("TNotebook", tabposition="ne")
 
         # Main layout: notebook (top) + status bar (bottom)
         self.notebook = ttk.Notebook(self.root)
@@ -802,9 +851,9 @@ class App:
                                                       "https://play.embyil.tv"))
         self.v_user = tk.StringVar(value=self.cfg.get("username", ""))
         self.v_pass = tk.StringVar(value=self.cfg.get("password", ""))
-        for label, var, show in [("Base URL", self.v_base, None),
-                                 ("Username", self.v_user, None),
-                                 ("Password", self.v_pass, "*")]:
+        for label, var, show in [(b("כתובת השרת"), self.v_base, None),
+                                 (b("שם משתמש"), self.v_user, None),
+                                 (b("סיסמה"), self.v_pass, "*")]:
             row = ttk.Frame(em); row.pack(fill=tk.X, padx=6, pady=2)
             ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
             ttk.Entry(row, textvariable=var, show=show).pack(
@@ -832,9 +881,9 @@ class App:
         for label, var, show in [
             ("API ID", self.v_api_id, None),
             ("API Hash", self.v_api_hash, "*"),
-            (b("טלפון (user)"), self.v_phone, None),
-            ("Bot Token", self.v_bot_token, "*"),
-            ("Chat ID / @user", self.v_chat, None),
+            (b("טלפון"), self.v_phone, None),
+            (b("טוקן בוט"), self.v_bot_token, "*"),
+            (b("Chat ID / @משתמש"), self.v_chat, None),
         ]:
             row = ttk.Frame(tg); row.pack(fill=tk.X, padx=6, pady=2)
             ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
@@ -851,12 +900,13 @@ class App:
         dl.pack(fill=tk.X, padx=8, pady=4)
         self.v_dldir = tk.StringVar(value=self.cfg.get(
             "download_dir", str(DOWNLOAD_DIR_DEFAULT)))
+        # RTL: label + button cluster on the right, entry fills the left
         row = ttk.Frame(dl); row.pack(fill=tk.X, padx=6, pady=2)
         ttk.Label(row, text=b("תיקיית הורדה"), width=14).pack(side=tk.RIGHT)
-        ttk.Entry(row, textvariable=self.v_dldir).pack(
-            side=tk.RIGHT, fill=tk.X, expand=True)
         ttk.Button(row, text=b("בחר..."),
                    command=self._choose_dl_dir).pack(side=tk.RIGHT, padx=4)
+        ttk.Entry(row, textvariable=self.v_dldir).pack(
+            side=tk.RIGHT, fill=tk.X, expand=True)
 
         # Delete after upload + Organize folders + Subtitles
         self.v_delete = tk.BooleanVar(
@@ -913,6 +963,26 @@ class App:
         ttk.Entry(row5, textvariable=self.v_retry_delay, width=6).pack(
             side=tk.RIGHT, padx=4)
 
+        # Bandwidth limit
+        self.v_rate_kbps = tk.StringVar(
+            value=str(self.cfg.get("rate_limit_kbps", 0)))
+        row6 = ttk.Frame(au); row6.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row6, text=b("הגבלת מהירות (KB/s)"), width=18).pack(side=tk.RIGHT)
+        ttk.Entry(row6, textvariable=self.v_rate_kbps, width=10).pack(
+            side=tk.RIGHT, padx=4)
+        ttk.Label(row6, text=b("(0 = ללא הגבלה)"),
+                  foreground="#666").pack(side=tk.RIGHT, padx=8)
+
+        # Concurrent workers
+        self.v_concurrent = tk.StringVar(
+            value=str(self.cfg.get("concurrent_workers", 1)))
+        row7 = ttk.Frame(au); row7.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row7, text=b("הורדות במקביל"), width=18).pack(side=tk.RIGHT)
+        ttk.Spinbox(row7, textvariable=self.v_concurrent, from_=1, to=4,
+                    width=5).pack(side=tk.RIGHT, padx=4)
+        ttk.Label(row7, text=b("(1-4. ההעלאות תמיד יורות אחת בכל פעם)"),
+                  foreground="#666").pack(side=tk.RIGHT, padx=8)
+
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
         ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
@@ -948,6 +1018,8 @@ class App:
             "auto_split": bool(self.v_auto_split.get()),
             "retry_count": int(self.v_retry_count.get() or 0),
             "retry_delay": int(self.v_retry_delay.get() or 5),
+            "rate_limit_kbps": int(self.v_rate_kbps.get() or 0),
+            "concurrent_workers": int(self.v_concurrent.get() or 1),
         })
         save_config(self.cfg)
         messagebox.showinfo(b("נשמר"), b("ההגדרות נשמרו ל-") + str(CONFIG_PATH))
@@ -1635,6 +1707,8 @@ class App:
             retry_count=int(self.v_retry_count.get() or 0),
             retry_delay=int(self.v_retry_delay.get() or 5),
             download_subtitles=bool(self.v_subs.get()),
+            rate_limit_kbps=int(self.v_rate_kbps.get() or 0),
+            concurrent_workers=int(self.v_concurrent.get() or 1),
             history_cb=self._add_history,
         )
         self._stats_t0 = time.time()
