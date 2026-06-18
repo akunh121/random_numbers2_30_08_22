@@ -473,20 +473,20 @@ class App:
                                  ("Username", self.v_user, None),
                                  ("Password", self.v_pass, "*")]:
             row = ttk.Frame(em); row.pack(fill=tk.X, padx=6, pady=2)
-            ttk.Label(row, text=label, width=14).pack(side=tk.LEFT)
+            ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
             ttk.Entry(row, textvariable=var, show=show).pack(
-                side=tk.LEFT, fill=tk.X, expand=True)
+                side=tk.RIGHT, fill=tk.X, expand=True)
 
         # Telegram
         tg = ttk.LabelFrame(f, text="Telegram")
         tg.pack(fill=tk.X, padx=8, pady=4)
         self.v_mode = tk.StringVar(value=self.cfg.get("tg_mode", "bot"))
         mr = ttk.Frame(tg); mr.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(mr, text=b("מצב"), width=14).pack(side=tk.LEFT)
+        ttk.Label(mr, text=b("מצב"), width=14).pack(side=tk.RIGHT)
         ttk.Radiobutton(mr, text=b("בוט (עד 50MB)"), variable=self.v_mode,
-                        value="bot").pack(side=tk.LEFT)
+                        value="bot").pack(side=tk.RIGHT)
         ttk.Radiobutton(mr, text=b("חשבון משתמש (עד 2GB)"), variable=self.v_mode,
-                        value="user").pack(side=tk.LEFT)
+                        value="user").pack(side=tk.RIGHT)
 
         self.v_api_id = tk.StringVar(value=str(self.cfg.get("api_id", "")))
         self.v_api_hash = tk.StringVar(value=self.cfg.get("api_hash", ""))
@@ -502,9 +502,9 @@ class App:
             ("Chat ID / @user", self.v_chat, None),
         ]:
             row = ttk.Frame(tg); row.pack(fill=tk.X, padx=6, pady=2)
-            ttk.Label(row, text=label, width=14).pack(side=tk.LEFT)
+            ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
             ttk.Entry(row, textvariable=var, show=show).pack(
-                side=tk.LEFT, fill=tk.X, expand=True)
+                side=tk.RIGHT, fill=tk.X, expand=True)
 
         ttk.Label(tg, text=(
             "API ID/Hash: https://my.telegram.org → API Development Tools\n"
@@ -517,21 +517,21 @@ class App:
         self.v_dldir = tk.StringVar(value=self.cfg.get(
             "download_dir", str(DOWNLOAD_DIR_DEFAULT)))
         row = ttk.Frame(dl); row.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row, text=b("תיקייה זמנית"), width=14).pack(side=tk.LEFT)
+        ttk.Label(row, text=b("תיקייה זמנית"), width=14).pack(side=tk.RIGHT)
         ttk.Entry(row, textvariable=self.v_dldir).pack(
-            side=tk.LEFT, fill=tk.X, expand=True)
+            side=tk.RIGHT, fill=tk.X, expand=True)
         ttk.Button(row, text=b("בחר..."),
-                   command=self._choose_dl_dir).pack(side=tk.LEFT, padx=4)
+                   command=self._choose_dl_dir).pack(side=tk.RIGHT, padx=4)
 
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
         ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
-            side=tk.LEFT, padx=4)
+            side=tk.RIGHT, padx=4)
         ttk.Button(br, text=b("התחבר ל-Emby ↓"), command=self._connect_emby).pack(
-            side=tk.LEFT, padx=4)
+            side=tk.RIGHT, padx=4)
         self.v_status = tk.StringVar(value=b("לא מחובר"))
         ttk.Label(br, textvariable=self.v_status,
-                  foreground="gray").pack(side=tk.LEFT, padx=12)
+                  foreground="gray").pack(side=tk.RIGHT, padx=12)
 
     def _choose_dl_dir(self) -> None:
         d = filedialog.askdirectory(initialdir=self.v_dldir.get() or str(Path.home()))
@@ -573,15 +573,15 @@ class App:
         self.notebook.add(f, text=b("עיון ובחירה"))
 
         top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Label(top, text=b("חיפוש:")).pack(side=tk.LEFT)
+        ttk.Label(top, text=b("חיפוש:")).pack(side=tk.RIGHT)
         self.v_search = tk.StringVar()
         ent = ttk.Entry(top, textvariable=self.v_search)
-        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ent.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
         ent.bind("<Return>", lambda e: self._do_search())
-        ttk.Button(top, text=b("חפש"), command=self._do_search).pack(side=tk.LEFT)
+        ttk.Button(top, text=b("חפש"), command=self._do_search).pack(side=tk.RIGHT)
         ttk.Button(top, text="✕", width=3,
                    command=lambda: (self.v_search.set(""), self._load_libraries())
-                   ).pack(side=tk.LEFT, padx=2)
+                   ).pack(side=tk.RIGHT, padx=2)
 
         # Tree
         cols = ("type", "size")
@@ -589,20 +589,23 @@ class App:
         self.tree.heading("#0", text=b("שם"))
         self.tree.heading("type", text=b("סוג"))
         self.tree.heading("size", text=b("פרטים"))
-        self.tree.column("#0", width=600)
-        self.tree.column("type", width=80, anchor="center")
-        self.tree.column("size", width=200)
+        self.tree.column("#0", width=600, anchor="e")
+        self.tree.column("type", width=80, anchor="e")
+        self.tree.column("size", width=200, anchor="e")
+        self.tree.heading("#0", anchor="e")
+        self.tree.heading("type", anchor="e")
+        self.tree.heading("size", anchor="e")
         self.tree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
         self.tree.bind("<<TreeviewOpen>>", self._on_tree_open)
 
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
         ttk.Button(bot, text=b("הוסף לתור ←"), command=self._add_selected_to_queue
-                   ).pack(side=tk.LEFT, padx=4)
+                   ).pack(side=tk.RIGHT, padx=4)
         ttk.Button(bot, text=b("הוסף סדרה שלמה"),
-                   command=self._add_series_to_queue).pack(side=tk.LEFT, padx=4)
+                   command=self._add_series_to_queue).pack(side=tk.RIGHT, padx=4)
         self.v_browse_status = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self.v_browse_status,
-                  foreground="gray").pack(side=tk.LEFT, padx=12)
+                  foreground="gray").pack(side=tk.RIGHT, padx=12)
 
     def _load_libraries(self) -> None:
         if not self.emby:
@@ -792,21 +795,24 @@ class App:
         self.qtree.heading("#0", text=b("שם"))
         self.qtree.heading("status", text=b("סטטוס"))
         self.qtree.heading("progress", text=b("התקדמות"))
-        self.qtree.column("#0", width=600)
-        self.qtree.column("status", width=240)
-        self.qtree.column("progress", width=120)
+        self.qtree.column("#0", width=600, anchor="e")
+        self.qtree.column("status", width=240, anchor="e")
+        self.qtree.column("progress", width=120, anchor="e")
+        self.qtree.heading("#0", anchor="e")
+        self.qtree.heading("status", anchor="e")
+        self.qtree.heading("progress", anchor="e")
         self.qtree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
         ttk.Button(bot, text=b("▶ התחל"), command=self._start_worker).pack(
-            side=tk.LEFT, padx=4)
+            side=tk.RIGHT, padx=4)
         ttk.Button(bot, text=b("✕ נקה תור"), command=self._clear_queue).pack(
-            side=tk.LEFT, padx=4)
+            side=tk.RIGHT, padx=4)
         ttk.Button(bot, text=b("⏹ עצור"), command=self._stop_worker).pack(
-            side=tk.LEFT, padx=4)
+            side=tk.RIGHT, padx=4)
         self.v_qstatus = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self.v_qstatus,
-                  foreground="gray").pack(side=tk.LEFT, padx=12)
+                  foreground="gray").pack(side=tk.RIGHT, padx=12)
 
     def _refresh_queue(self) -> None:
         for c in self.qtree.get_children():
