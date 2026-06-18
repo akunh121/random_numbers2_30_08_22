@@ -686,6 +686,9 @@ class App:
         self._build_status_bar()
         self._bind_shortcuts()
 
+        # Restore saved queue from previous run (only pending items)
+        self._restore_queue()
+
         # Live tick to update stats
         self.root.after(500, self._tick_stats)
 
@@ -884,6 +887,18 @@ class App:
         self.tree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
         self.tree.bind("<<TreeviewOpen>>", self._on_tree_open)
 
+        # Right-click context menu in browse tree
+        self.bmenu = tk.Menu(self.tree, tearoff=0)
+        self.bmenu.add_command(label=b("הוסף לתור ←"),
+                               command=self._add_selected_to_queue)
+        self.bmenu.add_command(label=b("הוסף סדרה שלמה"),
+                               command=self._add_series_to_queue)
+        self.bmenu.add_separator()
+        self.bmenu.add_command(label=b("פתח/סגור"),
+                               command=self._toggle_tree_node)
+        self.tree.bind("<Button-3>", self._show_bmenu)
+        self.tree.bind("<Button-2>", self._show_bmenu)  # macOS
+
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
         ttk.Button(bot, text=b("הוסף לתור ←"), command=self._add_selected_to_queue
                    ).pack(side=tk.RIGHT, padx=4)
@@ -1024,6 +1039,7 @@ class App:
         self.v_browse_status.set(b(f"נוסף לתור: {added}"))
         if added:
             self._refresh_queue()
+            self._filter_completed(added)
 
     def _add_series_to_queue(self) -> None:
         sel = self.tree.selection()
@@ -1036,6 +1052,7 @@ class App:
         self.v_browse_status.set(b(f"נוסף לתור: {added} פרקים"))
         if added:
             self._refresh_queue()
+            self._filter_completed(added)
 
     def _enumerate_series(self, series: Dict[str, Any]) -> int:
         seasons_raw, _ = self.emby.items(
@@ -1067,9 +1084,48 @@ class App:
             sr_name = sr.get("Name", item.get("SeriesName", "?"))
             title = f"{sr_name} S{sn:02d}E{en:02d} - {item.get('Name','')}"
             file_base = sanitize(f"{sr_name} עונה {sn} פרק {en}")
+        # Dedup: skip if already in queue (same item_id)
+        if any(j.item_id == item["Id"] for j in self.jobs):
+            return 0
         self.jobs.append(Job(title=title, item_id=item["Id"],
                              file_basename=file_base))
         return 1
+
+    def _show_bmenu(self, event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if iid and iid not in self.tree.selection():
+            self.tree.selection_set(iid)
+        try:
+            self.bmenu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.bmenu.grab_release()
+
+    def _toggle_tree_node(self) -> None:
+        for n in self.tree.selection():
+            self.tree.item(n, open=not self.tree.item(n, "open"))
+            self._on_tree_open(None)
+
+    def _filter_completed(self, added_count: int) -> None:
+        """If history contains entries with status=ok matching newly-added
+        items, ask user whether to remove those duplicates."""
+        if added_count == 0:
+            return
+        completed_titles = {
+            e["title"] for e in self.cfg.get("history", [])
+            if e.get("status") == "ok"
+        }
+        # Find duplicates in the LAST added_count jobs
+        dups = [j for j in self.jobs[-added_count:]
+                if j.title in completed_titles]
+        if not dups:
+            return
+        if messagebox.askyesno(
+                b("פריטים שכבר הועלו"),
+                b(f"{len(dups)} פריטים מתוך {added_count} כבר הועלו "
+                  f"בעבר בהצלחה. לדלג עליהם?")):
+            dup_titles = {j.title for j in dups}
+            self.jobs = [j for j in self.jobs if j.title not in dup_titles]
+            self._refresh_queue()
 
     # ---- Queue tab ----
     def _build_queue_tab(self) -> None:
@@ -1170,7 +1226,14 @@ class App:
                               tags=(tag,))
             shown += 1
         self._update_overall()
-        if flt:
+        if not self.jobs:
+            # Empty state hint
+            self.qtree.insert(
+                "", "end",
+                text=b("⌥ התור ריק — עבור ללשונית 'עיון ובחירה' והוסף תוכן"),
+                values=("", ""), tags=("pending",))
+            self.v_qstatus.set(b("התור ריק"))
+        elif flt:
             self.v_qstatus.set(b(f"{shown}/{len(self.jobs)} פריטים (סינון פעיל)"))
         else:
             self.v_qstatus.set(b(f"{len(self.jobs)} פריטים בתור"))
@@ -1407,6 +1470,12 @@ class App:
         for c in self.htree.get_children():
             self.htree.delete(c)
         history = self.cfg.get("history", [])
+        if not history:
+            self.htree.insert("", "end",
+                              text=b("⌥ אין היסטוריה - הפעל worker כדי להתחיל"),
+                              values=("", "", ""))
+            self.v_hist_count.set(b("ריק"))
+            return
         for entry in reversed(history[-500:]):
             ts = entry.get("ts", 0)
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
@@ -1477,12 +1546,40 @@ class App:
         try:
             geom = self.root.geometry()
             self.cfg["window_geometry"] = geom
+            self._persist_queue()
             save_config(self.cfg)
         except Exception:
             pass
         if self.worker and self.worker.is_alive():
             self.worker.stop()
         self.root.destroy()
+
+    # ---- Queue persistence ----
+    def _persist_queue(self) -> None:
+        """Save non-completed jobs to config so the queue survives restart."""
+        pending = []
+        for j in self.jobs:
+            if "הושלם" in j.status or "םלשוה" in j.status:
+                continue
+            pending.append({
+                "title": j.title,
+                "item_id": j.item_id,
+                "file_basename": j.file_basename,
+            })
+        self.cfg["saved_queue"] = pending
+
+    def _restore_queue(self) -> None:
+        saved = self.cfg.get("saved_queue") or []
+        if not saved:
+            return
+        for q in saved:
+            self.jobs.append(Job(
+                title=q.get("title", "?"),
+                item_id=q.get("item_id", ""),
+                file_basename=q.get("file_basename", "?"),
+            ))
+        self._refresh_queue()
+        self._log(b(f"שוחזרו {len(saved)} פריטים מהתור הקודם"))
 
     # ---- Run ----
     def run(self) -> None:
