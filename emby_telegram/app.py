@@ -269,23 +269,57 @@ class EmbyClient:
 # Download
 
 def stream_download(session, url: str, dest: Path,
-                    progress_cb: Callable[[int, int], None]) -> None:
+                    progress_cb: Callable[[int, int], None],
+                    resume: bool = False) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with session.get(url, stream=True, timeout=60, allow_redirects=True) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length") or 0)
-        done = 0
-        last_emit = 0
-        with dest.open("wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
-                    done += len(chunk)
-                    now = time.time()
-                    if now - last_emit >= 0.3:
-                        progress_cb(done, total)
-                        last_emit = now
-        progress_cb(done, total)
+    headers = {}
+    mode = "wb"
+    already = 0
+    if resume and dest.exists():
+        already = dest.stat().st_size
+        if already > 0:
+            headers["Range"] = f"bytes={already}-"
+            mode = "ab"
+    with session.get(url, stream=True, timeout=60, allow_redirects=True,
+                     headers=headers) as r:
+        if resume and already > 0 and r.status_code == 416:
+            # Range not satisfiable => server has same/less; restart fresh
+            mode = "wb"; already = 0
+            r.close()
+            with session.get(url, stream=True, timeout=60,
+                             allow_redirects=True) as r2:
+                r2.raise_for_status()
+                total = int(r2.headers.get("content-length") or 0)
+                _write_stream(r2, dest, "wb", 0, total, progress_cb)
+            return
+        if resume and already > 0 and r.status_code == 206:
+            cr = r.headers.get("content-range", "")
+            # bytes start-end/total
+            total = int(cr.split("/")[-1]) if "/" in cr else (
+                already + int(r.headers.get("content-length") or 0))
+        else:
+            if r.status_code == 200 and already > 0:
+                # Server doesn't honor Range; restart fresh
+                mode = "wb"; already = 0
+            r.raise_for_status()
+            total = int(r.headers.get("content-length") or 0) + already
+        _write_stream(r, dest, mode, already, total, progress_cb)
+
+
+def _write_stream(r, dest: Path, mode: str, already: int, total: int,
+                  progress_cb: Callable[[int, int], None]) -> None:
+    done = already
+    last_emit = 0
+    with dest.open(mode) as f:
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                f.write(chunk)
+                done += len(chunk)
+                now = time.time()
+                if now - last_emit >= 0.3:
+                    progress_cb(done, total)
+                    last_emit = now
+    progress_cb(done, total)
 
 
 # ============================================================================
@@ -387,6 +421,7 @@ class Job:
     title: str          # תצוגה
     item_id: str
     file_basename: str  # ללא סיומת
+    rel_dir: str = ""   # מבנה תיקיות מסודר (יחסי ל-download_dir)
     status: str = "ממתין"
     progress: float = 0.0
     error: Optional[str] = None
@@ -410,6 +445,7 @@ class PipelineWorker(threading.Thread):
                  auto_split: bool = False,
                  retry_count: int = 0,
                  retry_delay: int = 5,
+                 download_subtitles: bool = True,
                  history_cb: Optional[Callable[[Dict[str, Any]], None]] = None):
         super().__init__(daemon=True)
         self.emby = emby
@@ -426,6 +462,7 @@ class PipelineWorker(threading.Thread):
         self.auto_split = bool(auto_split)
         self.retry_count = max(0, int(retry_count))
         self.retry_delay = max(1, int(retry_delay))
+        self.download_subtitles = bool(download_subtitles)
         self.history_cb = history_cb
 
     def enqueue(self, jobs: List[Tuple[int, Job]]) -> None:
@@ -557,14 +594,27 @@ class PipelineWorker(threading.Thread):
         if container not in ("mp4", "mkv", "webm", "m4v", "mov", "avi", "ts"):
             container = "mp4"
         file_name = sanitize(f"{job.file_basename}.{container}")
-        dest = self.download_dir / file_name
+        target_dir = self.download_dir
+        if job.rel_dir:
+            for part in job.rel_dir.split("/"):
+                if part:
+                    target_dir = target_dir / part
+        target_dir.mkdir(parents=True, exist_ok=True)
+        dest = target_dir / file_name
 
-        # Download video
-        self.log_cb(f"[{job.title}] מוריד {human_size(size) if size else '?'}")
-        def dl_prog(done, total):
-            pct = (done / total * 100) if total else 0
-            self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
-        stream_download(self.emby.s, url, dest, dl_prog)
+        # Smart resume: if file already exists with matching size, skip
+        if dest.exists() and size and dest.stat().st_size == size:
+            self.log_cb(
+                f"[{job.title}] קובץ כבר קיים בגודל מלא, מדלג על הורדה")
+            self.status_cb(idx, b("קובץ קיים"), 50)
+        else:
+            self.log_cb(f"[{job.title}] מוריד {human_size(size) if size else '?'} → "
+                        f"{dest}")
+            def dl_prog(done, total):
+                pct = (done / total * 100) if total else 0
+                self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
+            stream_download(self.emby.s, url, dest, dl_prog,
+                            resume=dest.exists())
 
         # Upload video (with size check / optional split)
         actual = dest.stat().st_size
@@ -595,13 +645,13 @@ class PipelineWorker(threading.Thread):
             self.log_cb(f"[{job.title}] קובץ נשמר: {dest}")
 
         # Subtitles - download and upload each text-format sub
-        if subs:
+        if subs and self.download_subtitles:
             self.log_cb(f"[{job.title}] נמצאו {len(subs)} כתוביות")
             for i, sub in enumerate(subs):
                 lang = sub["language"]
                 fmt = sub["format"]
                 sub_basename = sanitize(f"{job.file_basename}.{lang}.{fmt}")
-                sub_dest = self.download_dir / sub_basename
+                sub_dest = target_dir / sub_basename
                 try:
                     self.status_cb(idx, b(f"מוריד כתוביות ({lang})"), 0)
                     def sub_prog(done, total):
@@ -622,6 +672,8 @@ class PipelineWorker(threading.Thread):
                     if self.delete_after_upload and sub_dest.exists():
                         try: sub_dest.unlink()
                         except OSError: pass
+        elif subs and not self.download_subtitles:
+            self.log_cb(f"[{job.title}] {len(subs)} כתוביות זמינות אך מדלגים")
 
         self.status_cb(idx, b("הושלם"), 100)
 
@@ -760,13 +812,26 @@ class App:
         ttk.Button(row, text=b("בחר..."),
                    command=self._choose_dl_dir).pack(side=tk.RIGHT, padx=4)
 
-        # Delete after upload checkbox
+        # Delete after upload + Organize folders + Subtitles
         self.v_delete = tk.BooleanVar(
             value=bool(self.cfg.get("delete_after_upload", True)))
+        self.v_organize = tk.BooleanVar(
+            value=bool(self.cfg.get("organize_folders", True)))
+        self.v_subs = tk.BooleanVar(
+            value=bool(self.cfg.get("download_subtitles", True)))
+
         row2 = ttk.Frame(dl); row2.pack(fill=tk.X, padx=6, pady=2)
         ttk.Checkbutton(row2,
                         text=b("מחק קובץ מהדיסק אחרי העלאה מוצלחת"),
                         variable=self.v_delete).pack(side=tk.RIGHT, padx=4)
+        row3 = ttk.Frame(dl); row3.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Checkbutton(row3,
+                        text=b("ארגון בתיקיות (ספרייה / סדרה / עונה / פרק)"),
+                        variable=self.v_organize).pack(side=tk.RIGHT, padx=4)
+        row4 = ttk.Frame(dl); row4.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Checkbutton(row4,
+                        text=b("הורד כתוביות חיצוניות אם קיימות"),
+                        variable=self.v_subs).pack(side=tk.RIGHT, padx=4)
 
         # Automation panel
         au = ttk.LabelFrame(f, text=b("אוטומציה"))
@@ -831,6 +896,8 @@ class App:
             "chat_id": self.v_chat.get().strip(),
             "download_dir": self.v_dldir.get().strip(),
             "delete_after_upload": bool(self.v_delete.get()),
+            "organize_folders": bool(self.v_organize.get()),
+            "download_subtitles": bool(self.v_subs.get()),
             "size_limit_mb": int(self.v_size_limit.get() or 0),
             "auto_split": bool(self.v_auto_split.get()),
             "retry_count": int(self.v_retry_count.get() or 0),
@@ -948,6 +1015,7 @@ class App:
         item = info["item"]
         try:
             if kind == "library":
+                library = item
                 ctype = item.get("CollectionType")
                 if ctype == "movies":
                     children, total = self.emby.items(
@@ -956,7 +1024,8 @@ class App:
                         n = self.tree.insert(parent_node, "end",
                                              text=b(m.get("Name", "?")),
                                              values=(b("סרט"), ""))
-                        self.tree_items[n] = {"kind": "movie", "item": m}
+                        self.tree_items[n] = {"kind": "movie", "item": m,
+                                              "library": library}
                 else:
                     children, total = self.emby.items(
                         parent_id=item["Id"], item_types="Series", limit=10000)
@@ -964,12 +1033,14 @@ class App:
                         n = self.tree.insert(parent_node, "end",
                                              text=b(sr.get("Name", "?")),
                                              values=(b("סדרה"), ""))
-                        self.tree_items[n] = {"kind": "series", "item": sr}
+                        self.tree_items[n] = {"kind": "series", "item": sr,
+                                              "library": library}
                         self.tree.insert(n, "end", text=b("טוען..."),
                                          values=("", ""), tags=("placeholder",))
                 self.v_browse_status.set(
                     f"{item.get('Name')}: {total}")
             elif kind == "series":
+                library = info.get("library")
                 seasons_raw, _ = self.emby.items(
                     parent_id=item["Id"], item_types="Season", limit=200)
                 seasons = self.emby.dedup_by_index(seasons_raw)
@@ -979,10 +1050,13 @@ class App:
                                          text=b(f"עונה {sn} - {sea.get('Name','')}"),
                                          values=(b("עונה"), ""))
                     self.tree_items[n] = {"kind": "season", "item": sea,
-                                          "series": item}
+                                          "series": item,
+                                          "library": library}
                     self.tree.insert(n, "end", text=b("טוען..."),
                                      values=("", ""), tags=("placeholder",))
             elif kind == "season":
+                library = info.get("library")
+                series = info.get("series")
                 eps_raw, _ = self.emby.items(
                     parent_id=item["Id"], item_types="Episode", limit=5000)
                 eps = self.emby.dedup_by_index(eps_raw)
@@ -993,7 +1067,8 @@ class App:
                                          values=(b("פרק"), ""))
                     self.tree_items[n] = {"kind": "episode", "item": ep,
                                           "season": item,
-                                          "series": info.get("series")}
+                                          "series": series,
+                                          "library": library}
         except Exception as e:
             messagebox.showerror(b("שגיאה"), b(f"טעינת תוכן: {e}"))
 
@@ -1073,9 +1148,16 @@ class App:
     def _add_item_to_queue(self, info: Dict[str, Any]) -> int:
         kind = info["kind"]
         item = info["item"]
+        library = info.get("library") or {}
+        library_name = sanitize(library.get("Name") or "ספרייה")
+        organize = bool(getattr(self, "v_organize",
+                                tk.BooleanVar(value=True)).get())
         if kind == "movie":
             title = item.get("Name", "?")
             file_base = sanitize(title)
+            year = item.get("ProductionYear")
+            folder_name = sanitize(f"{title} ({year})") if year else sanitize(title)
+            rel_dir = f"{library_name}/{folder_name}" if organize else ""
         else:  # episode
             sr = info.get("series", {})
             sea = info.get("season", {})
@@ -1083,12 +1165,18 @@ class App:
             en = item.get("IndexNumber", 0)
             sr_name = sr.get("Name", item.get("SeriesName", "?"))
             title = f"{sr_name} S{sn:02d}E{en:02d} - {item.get('Name','')}"
-            file_base = sanitize(f"{sr_name} עונה {sn} פרק {en}")
+            file_base = sanitize(f"{sr_name} S{sn:02d}E{en:02d}")
+            if organize:
+                rel_dir = (f"{library_name}/"
+                           f"{sanitize(sr_name)}/"
+                           f"{sanitize(f'עונה {sn:02d}')}")
+            else:
+                rel_dir = ""
         # Dedup: skip if already in queue (same item_id)
         if any(j.item_id == item["Id"] for j in self.jobs):
             return 0
         self.jobs.append(Job(title=title, item_id=item["Id"],
-                             file_basename=file_base))
+                             file_basename=file_base, rel_dir=rel_dir))
         return 1
 
     def _show_bmenu(self, event) -> None:
@@ -1384,6 +1472,7 @@ class App:
             auto_split=bool(self.v_auto_split.get()),
             retry_count=int(self.v_retry_count.get() or 0),
             retry_delay=int(self.v_retry_delay.get() or 5),
+            download_subtitles=bool(self.v_subs.get()),
             history_cb=self._add_history,
         )
         self._stats_t0 = time.time()
@@ -1565,6 +1654,7 @@ class App:
                 "title": j.title,
                 "item_id": j.item_id,
                 "file_basename": j.file_basename,
+                "rel_dir": j.rel_dir,
             })
         self.cfg["saved_queue"] = pending
 
@@ -1577,6 +1667,7 @@ class App:
                 title=q.get("title", "?"),
                 item_id=q.get("item_id", ""),
                 file_basename=q.get("file_basename", "?"),
+                rel_dir=q.get("rel_dir", ""),
             ))
         self._refresh_queue()
         self._log(b(f"שוחזרו {len(saved)} פריטים מהתור הקודם"))
