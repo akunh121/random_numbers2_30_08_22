@@ -1122,20 +1122,21 @@ class App:
                              bg=c["input_bg"], fg=c["fg"], bd=0,
                              relief="flat", highlightthickness=1,
                              highlightbackground=c["input_border"],
-                             highlightcolor=c["accent"])
+                             highlightcolor=c["accent"],
+                             justify="right")
             ent.pack(side=tk.RIGHT, padx=4, ipady=4)
         else:
+            # Default to a compact width; text justified to the right so
+            # Hebrew input starts from the right edge of the box.
             ent = tk.Entry(row, textvariable=var, show=show or "",
                            bg=c["input_bg"], fg=c["fg"],
                            insertbackground=c["fg"], bd=0,
                            relief="flat", highlightthickness=1,
                            highlightbackground=c["input_border"],
-                           highlightcolor=c["accent"])
-            if width:
-                ent.config(width=width)
-                ent.pack(side=tk.RIGHT, padx=4, ipady=4)
-            else:
-                ent.pack(side=tk.RIGHT, padx=4, fill=tk.X, expand=True, ipady=4)
+                           highlightcolor=c["accent"],
+                           justify="right",
+                           width=width or 32)
+            ent.pack(side=tk.RIGHT, padx=4, ipady=4)
         if hint:
             tk.Label(row, text=hint, bg=c["card"], fg=c["fg_dim"],
                      font=("TkDefaultFont", 9)).pack(side=tk.RIGHT, padx=8)
@@ -1152,14 +1153,16 @@ class App:
                  bg=c["input_bg"], fg=c["fg"],
                  insertbackground=c["fg"], bd=0, relief="flat",
                  highlightthickness=1, highlightbackground=c["input_border"],
-                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4, ipady=4)
+                 highlightcolor=c["accent"],
+                 justify="right").pack(side=tk.RIGHT, padx=4, ipady=4)
         tk.Label(row, text=label2, bg=c["card"], fg=c["fg_dim"],
                  font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(16, 4))
         tk.Entry(row, textvariable=var2, width=w2,
                  bg=c["input_bg"], fg=c["fg"],
                  insertbackground=c["fg"], bd=0, relief="flat",
                  highlightthickness=1, highlightbackground=c["input_border"],
-                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4, ipady=4)
+                 highlightcolor=c["accent"],
+                 justify="right").pack(side=tk.RIGHT, padx=4, ipady=4)
 
     def _radio_row(self, card_wrap: tk.Frame, label: str, var: tk.StringVar,
                    options: List[Tuple[str, str, str]]) -> None:
@@ -1210,13 +1213,14 @@ class App:
                   cursor="hand2", padx=12,
                   font=("TkDefaultFont", 9)).pack(side=tk.RIGHT, padx=4,
                                                    ipady=4)
+        # The download dir is a path: leave it LTR + wider so it doesn't
+        # get truncated in the typical home folder layout.
         tk.Entry(row, textvariable=var,
                  bg=c["input_bg"], fg=c["fg"], insertbackground=c["fg"],
                  bd=0, relief="flat", highlightthickness=1,
                  highlightbackground=c["input_border"],
-                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4,
-                                                    fill=tk.X, expand=True,
-                                                    ipady=4)
+                 highlightcolor=c["accent"],
+                 width=48).pack(side=tk.RIGHT, padx=4, ipady=4)
 
     def _hint(self, card_wrap: tk.Frame, text: str) -> None:
         c = self._card_colors()
