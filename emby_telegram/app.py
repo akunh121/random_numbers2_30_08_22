@@ -395,12 +395,22 @@ class Job:
 # ============================================================================
 # Worker
 
+class _SkippedError(Exception):
+    """Raised inside the worker to indicate a job was skipped (not retried)."""
+    pass
+
+
 class PipelineWorker(threading.Thread):
     def __init__(self, emby: EmbyClient, uploader: TelegramUploader,
                  download_dir: Path,
                  status_cb: Callable[[int, str, float], None],
                  log_cb: Callable[[str], None],
-                 delete_after_upload: bool = True):
+                 delete_after_upload: bool = True,
+                 size_limit_mb: int = 0,
+                 auto_split: bool = False,
+                 retry_count: int = 0,
+                 retry_delay: int = 5,
+                 history_cb: Optional[Callable[[Dict[str, Any]], None]] = None):
         super().__init__(daemon=True)
         self.emby = emby
         self.uploader = uploader
@@ -411,6 +421,12 @@ class PipelineWorker(threading.Thread):
         self.stop_flag = threading.Event()
         self.current_idx: Optional[int] = None
         self.delete_after_upload = delete_after_upload
+        # 0 = unlimited
+        self.size_limit_bytes = int(size_limit_mb) * 1024 * 1024 if size_limit_mb else 0
+        self.auto_split = bool(auto_split)
+        self.retry_count = max(0, int(retry_count))
+        self.retry_delay = max(1, int(retry_delay))
+        self.history_cb = history_cb
 
     def enqueue(self, jobs: List[Tuple[int, Job]]) -> None:
         for j in jobs:
@@ -434,12 +450,51 @@ class PipelineWorker(threading.Thread):
             except queue.Empty:
                 continue
             self.current_idx = idx
-            try:
-                self._process(idx, job)
-            except Exception as e:
-                tb = traceback.format_exc()
-                self.log_cb(f"[{job.title}] FATAL: {e}\n{tb}")
-                self.status_cb(idx, b(f"שגיאה: {e}"), 0)
+            attempts = 0
+            t_start = time.time()
+            while True:
+                attempts += 1
+                try:
+                    self._process(idx, job)
+                    if self.history_cb:
+                        self.history_cb({
+                            "title": job.title, "status": "ok",
+                            "ts": int(time.time()),
+                            "elapsed": int(time.time() - t_start),
+                        })
+                    break
+                except _SkippedError as e:
+                    self.log_cb(f"[{job.title}] דילוג: {e}")
+                    self.status_cb(idx, b(f"דילוג: {e}"), 0)
+                    if self.history_cb:
+                        self.history_cb({
+                            "title": job.title, "status": "skipped",
+                            "ts": int(time.time()),
+                            "reason": str(e),
+                        })
+                    break
+                except Exception as e:
+                    if attempts <= self.retry_count and not self.stop_flag.is_set():
+                        self.log_cb(
+                            f"[{job.title}] ניסיון {attempts}/{self.retry_count+1} "
+                            f"נכשל: {e}. נסה שוב בעוד {self.retry_delay}s")
+                        self.status_cb(
+                            idx, b(f"נכשל - ממתין {self.retry_delay}s "
+                                   f"לניסיון {attempts+1}/{self.retry_count+1}"), 0)
+                        for _ in range(self.retry_delay):
+                            if self.stop_flag.is_set(): break
+                            time.sleep(1)
+                        continue
+                    tb = traceback.format_exc()
+                    self.log_cb(f"[{job.title}] FATAL: {e}\n{tb}")
+                    self.status_cb(idx, b(f"שגיאה: {e}"), 0)
+                    if self.history_cb:
+                        self.history_cb({
+                            "title": job.title, "status": "error",
+                            "ts": int(time.time()),
+                            "reason": str(e),
+                        })
+                    break
             self.q.task_done()
 
         try:
@@ -447,6 +502,51 @@ class PipelineWorker(threading.Thread):
         except Exception:
             pass
         self.log_cb(b("Worker נעצר"))
+
+    def _upload_with_optional_split(self, idx: int, job: Job,
+                                     dest: Path, up_prog) -> None:
+        """Upload a file, splitting it if it exceeds size_limit_bytes
+        and auto_split is enabled."""
+        actual = dest.stat().st_size
+        if self.size_limit_bytes and actual > self.size_limit_bytes:
+            if not self.auto_split:
+                raise _SkippedError(
+                    f"קובץ {human_size(actual)} מעל המגבלה "
+                    f"{human_size(self.size_limit_bytes)}")
+            # Split
+            chunk_size = int(self.size_limit_bytes * 0.95)
+            n_parts = (actual + chunk_size - 1) // chunk_size
+            self.log_cb(f"[{job.title}] מפצל ל-{n_parts} חלקים")
+            parts: List[Path] = []
+            try:
+                with dest.open("rb") as f_in:
+                    for i in range(n_parts):
+                        part_path = dest.with_suffix(
+                            dest.suffix + f".part{i+1:02d}")
+                        with part_path.open("wb") as f_out:
+                            written = 0
+                            while written < chunk_size:
+                                buf = f_in.read(min(1024 * 1024,
+                                                     chunk_size - written))
+                                if not buf:
+                                    break
+                                f_out.write(buf); written += len(buf)
+                        parts.append(part_path)
+                        self.status_cb(idx, b(f"פיצול {i+1}/{n_parts}"),
+                                       (i + 1) / n_parts * 100)
+                for i, part in enumerate(parts, 1):
+                    caption = f"{job.title} [{i}/{n_parts}]"
+                    def pp(done, total, i=i, n=n_parts):
+                        pct = ((i - 1) + (done / total if total else 0)) / n * 100
+                        self.status_cb(
+                            idx, b(f"מעלה חלק {i}/{n} {human_size(done)}"), pct)
+                    self.uploader.upload(part, caption=caption, progress_cb=pp)
+            finally:
+                for p in parts:
+                    try: p.unlink()
+                    except OSError: pass
+        else:
+            self.uploader.upload(dest, caption=job.title, progress_cb=up_prog)
 
     def _process(self, idx: int, job: Job) -> None:
         self.status_cb(idx, b("שולף URL"), 0)
@@ -466,14 +566,20 @@ class PipelineWorker(threading.Thread):
             self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
         stream_download(self.emby.s, url, dest, dl_prog)
 
-        # Upload video
+        # Upload video (with size check / optional split)
         actual = dest.stat().st_size
         self.log_cb(f"[{job.title}] מעלה {human_size(actual)}")
         def up_prog(done, total):
             pct = (done / total * 100) if total else 0
             self.status_cb(idx, b(f"מעלה {human_size(done)}/{human_size(total)}"), pct)
         try:
-            self.uploader.upload(dest, caption=job.title, progress_cb=up_prog)
+            self._upload_with_optional_split(idx, job, dest, up_prog)
+        except _SkippedError:
+            # Skipped due to size: cleanup file and propagate up
+            if self.delete_after_upload and dest.exists():
+                try: dest.unlink()
+                except OSError: pass
+            raise
         except Exception as e:
             self.log_cb(f"[{job.title}] העלאה נכשלה: {e}")
             raise
@@ -571,11 +677,14 @@ class App:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
 
+        self._build_header()
         self._build_config_tab()
         self._build_browse_tab()
         self._build_queue_tab()
+        self._build_history_tab()
         self._build_log_tab()
         self._build_status_bar()
+        self._bind_shortcuts()
 
         # Live tick to update stats
         self.root.after(500, self._tick_stats)
@@ -583,7 +692,7 @@ class App:
     # ---- Config tab ----
     def _build_config_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text=b("הגדרות"))
+        self.notebook.add(f, text="⚙  " + b("הגדרות"))
 
         # Emby
         em = ttk.LabelFrame(f, text="Emby")
@@ -656,15 +765,50 @@ class App:
                         text=b("מחק קובץ מהדיסק אחרי העלאה מוצלחת"),
                         variable=self.v_delete).pack(side=tk.RIGHT, padx=4)
 
+        # Automation panel
+        au = ttk.LabelFrame(f, text=b("אוטומציה"))
+        au.pack(fill=tk.X, padx=8, pady=4)
+
+        self.v_size_limit = tk.StringVar(
+            value=str(self.cfg.get("size_limit_mb", 1900)))
+        self.v_auto_split = tk.BooleanVar(
+            value=bool(self.cfg.get("auto_split", True)))
+        self.v_retry_count = tk.StringVar(
+            value=str(self.cfg.get("retry_count", 2)))
+        self.v_retry_delay = tk.StringVar(
+            value=str(self.cfg.get("retry_delay", 10)))
+
+        row3 = ttk.Frame(au); row3.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row3, text=b("מגבלת גודל (MB)"), width=18).pack(side=tk.RIGHT)
+        ttk.Entry(row3, textvariable=self.v_size_limit, width=10).pack(
+            side=tk.RIGHT, padx=4)
+        ttk.Label(row3, text=b("(0 = ללא מגבלה. ברירות: 50 לבוט, 1900 למשתמש, 3900 ל-Premium)"),
+                  foreground="#666").pack(side=tk.RIGHT, padx=8)
+
+        row4 = ttk.Frame(au); row4.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Checkbutton(row4,
+                        text=b("פיצול אוטומטי לקבצים גדולים מהמגבלה (במקום דילוג)"),
+                        variable=self.v_auto_split).pack(side=tk.RIGHT, padx=4)
+
+        row5 = ttk.Frame(au); row5.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row5, text=b("ניסיונות חוזרים"), width=18).pack(side=tk.RIGHT)
+        ttk.Entry(row5, textvariable=self.v_retry_count, width=6).pack(
+            side=tk.RIGHT, padx=4)
+        ttk.Label(row5, text=b("השהיה בין ניסיונות (שניות)")).pack(
+            side=tk.RIGHT, padx=8)
+        ttk.Entry(row5, textvariable=self.v_retry_delay, width=6).pack(
+            side=tk.RIGHT, padx=4)
+
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
         ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
             side=tk.RIGHT, padx=4)
-        ttk.Button(br, text=b("התחבר ל-Emby ↓"), command=self._connect_emby).pack(
+        ttk.Button(br, text=b("התחבר ל-Emby ↓"), command=self._connect_emby,
+                   style="Accent.TButton").pack(
             side=tk.RIGHT, padx=4)
         self.v_status = tk.StringVar(value=b("לא מחובר"))
         ttk.Label(br, textvariable=self.v_status,
-                  foreground="gray").pack(side=tk.RIGHT, padx=12)
+                  foreground="#666").pack(side=tk.RIGHT, padx=12)
 
     def _choose_dl_dir(self) -> None:
         d = filedialog.askdirectory(initialdir=self.v_dldir.get() or str(Path.home()))
@@ -684,6 +828,10 @@ class App:
             "chat_id": self.v_chat.get().strip(),
             "download_dir": self.v_dldir.get().strip(),
             "delete_after_upload": bool(self.v_delete.get()),
+            "size_limit_mb": int(self.v_size_limit.get() or 0),
+            "auto_split": bool(self.v_auto_split.get()),
+            "retry_count": int(self.v_retry_count.get() or 0),
+            "retry_delay": int(self.v_retry_delay.get() or 5),
         })
         save_config(self.cfg)
         messagebox.showinfo(b("נשמר"), b("ההגדרות נשמרו ל-") + str(CONFIG_PATH))
@@ -695,16 +843,19 @@ class App:
             self.emby = EmbyClient(self.v_base.get().strip())
             self.emby.login(self.v_user.get().strip(), self.v_pass.get())
             self.v_status.set(b(f"מחובר ({self.emby.user_id[:8]}...)"))
+            self.v_hdr_sub.set(b(f"מחובר כ-{self.v_user.get()} · "
+                                 f"בחר תוכן בלשונית עיון ובחירה"))
             self._load_libraries()
             self.notebook.select(1)
         except Exception as e:
             self.v_status.set(b("נכשל"))
+            self.v_hdr_sub.set(b("התחברות נכשלה"))
             messagebox.showerror(b("שגיאת חיבור"), str(e))
 
     # ---- Browse tab ----
     def _build_browse_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text=b("עיון ובחירה"))
+        self.notebook.add(f, text="🔎  " + b("עיון ובחירה"))
 
         top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
         ttk.Label(top, text=b("חיפוש:")).pack(side=tk.RIGHT)
@@ -712,6 +863,7 @@ class App:
         ent = ttk.Entry(top, textvariable=self.v_search)
         ent.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
         ent.bind("<Return>", lambda e: self._do_search())
+        self.search_entry = ent
         ttk.Button(top, text=b("חפש"), command=self._do_search).pack(side=tk.RIGHT)
         ttk.Button(top, text="✕", width=3,
                    command=lambda: (self.v_search.set(""), self._load_libraries())
@@ -922,7 +1074,7 @@ class App:
     # ---- Queue tab ----
     def _build_queue_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text=b("תור"))
+        self.notebook.add(f, text="📥  " + b("תור"))
 
         # Overall progress bar at top
         topbar = ttk.Frame(f); topbar.pack(fill=tk.X, padx=6, pady=(4, 0))
@@ -932,6 +1084,18 @@ class App:
         self.overall_progress = ttk.Progressbar(
             topbar, orient="horizontal", mode="determinate", maximum=100)
         self.overall_progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
+
+        # Filter row
+        filterbar = ttk.Frame(f); filterbar.pack(fill=tk.X, padx=6, pady=(4, 0))
+        self.v_qfilter = tk.StringVar()
+        ttk.Label(filterbar, text=b("סנן:")).pack(side=tk.RIGHT)
+        fe = ttk.Entry(filterbar, textvariable=self.v_qfilter)
+        fe.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=4)
+        fe.bind("<KeyRelease>", lambda e: self._refresh_queue())
+        ttk.Button(filterbar, text="✕", width=3,
+                   command=lambda: (self.v_qfilter.set(""),
+                                    self._refresh_queue())
+                   ).pack(side=tk.RIGHT, padx=2)
 
         cols = ("status", "progress")
         self.qtree = ttk.Treeview(f, columns=cols, show="tree headings")
@@ -945,6 +1109,7 @@ class App:
         self.qtree.tag_configure("done", background="#dcedc8", foreground="#1b5e20")
         self.qtree.tag_configure("active", background="#bbdefb", foreground="#0d47a1")
         self.qtree.tag_configure("error", background="#ffcdd2", foreground="#b71c1c")
+        self.qtree.tag_configure("skipped", background="#fff3e0", foreground="#e65100")
         self.qtree.tag_configure("pending", foreground="#666666")
         self.qtree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
@@ -976,26 +1141,39 @@ class App:
         s = status
         DONE = ("הושלם", "םלשוה", "✓", "completed", "done")
         ERR = ("שגיאה", "האיגש", "נכשל", "לשכנ", "error", "FAIL", "TOO_BIG")
+        SKIP = ("דילוג", "גוליד", "skipped", "מעל המגבלה", "הלבגמה לעמ")
         ACTIVE = ("מוריד", "דירומ", "מעלה", "הלעמ",
-                  "שולף", "ףלוש", "כתוביות", "תויבותכ")
+                  "שולף", "ףלוש", "כתוביות", "תויבותכ",
+                  "פיצול", "לוציפ", "ממתין", "ןיתממ")
         if any(k in s for k in DONE):
             return "done"
+        if any(k in s for k in SKIP):
+            return "skipped"
         if any(k in s for k in ERR):
             return "error"
-        if any(k in s for k in ACTIVE) or 0 < progress < 100:
+        if 0 < progress < 100 or any(k in s for k in ACTIVE if k not in
+                                     ("ממתין","ןיתממ")):
             return "active"
         return "pending"
 
     def _refresh_queue(self) -> None:
         for c in self.qtree.get_children():
             self.qtree.delete(c)
+        flt = (self.v_qfilter.get() if hasattr(self, "v_qfilter") else "").strip()
+        shown = 0
         for i, j in enumerate(self.jobs):
+            if flt and flt not in j.title:
+                continue
             tag = self._status_tag(j.status, j.progress)
             self.qtree.insert("", "end", iid=str(i), text=b(j.title),
                               values=(j.status, f"{j.progress:.0f}%"),
                               tags=(tag,))
+            shown += 1
         self._update_overall()
-        self.v_qstatus.set(b(f"{len(self.jobs)} פריטים בתור"))
+        if flt:
+            self.v_qstatus.set(b(f"{shown}/{len(self.jobs)} פריטים (סינון פעיל)"))
+        else:
+            self.v_qstatus.set(b(f"{len(self.jobs)} פריטים בתור"))
 
     def _show_qmenu(self, event) -> None:
         iid = self.qtree.identify_row(event.y)
@@ -1087,6 +1265,12 @@ class App:
         if self.worker and self.worker.is_alive():
             messagebox.showwarning(b("פעיל"), b("אי אפשר לנקות בזמן עבודה"))
             return
+        if not self.jobs:
+            return
+        if not messagebox.askyesno(
+                b("נקה תור"),
+                b(f"האם למחוק את כל {len(self.jobs)} הפריטים בתור?")):
+            return
         self.jobs.clear()
         self._refresh_queue()
 
@@ -1126,12 +1310,18 @@ class App:
 
         self._refresh_queue()
         # In local mode we don't want to delete the file (the whole point is
-        # to keep it locally).
+        # to keep it locally). And the size limit is ignored.
         delete_after = bool(self.v_delete.get()) and mode != "local"
+        size_limit = int(self.v_size_limit.get() or 0) if mode != "local" else 0
         self.worker = PipelineWorker(
             emby=self.emby, uploader=uploader, download_dir=dl_dir,
             status_cb=self._on_status, log_cb=self._log,
             delete_after_upload=delete_after,
+            size_limit_mb=size_limit,
+            auto_split=bool(self.v_auto_split.get()),
+            retry_count=int(self.v_retry_count.get() or 0),
+            retry_delay=int(self.v_retry_delay.get() or 5),
+            history_cb=self._add_history,
         )
         self._stats_t0 = time.time()
         self.worker.enqueue([(i, j) for i, j in enumerate(self.jobs)])
@@ -1158,7 +1348,7 @@ class App:
     # ---- Log tab ----
     def _build_log_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text=b("לוג"))
+        self.notebook.add(f, text="📋  " + b("לוג"))
         self.txt_log = scrolledtext.ScrolledText(f, wrap=tk.WORD)
         self.txt_log.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
@@ -1170,6 +1360,102 @@ class App:
         except tk.TclError:
             pass
 
+    # ---- Header ----
+    def _build_header(self) -> None:
+        h = ttk.Frame(self.root, padding=(12, 8))
+        h.pack(side=tk.TOP, fill=tk.X)
+        style = ttk.Style()
+        style.configure("Header.TLabel", font=("TkDefaultFont", 16, "bold"),
+                        foreground="#0d47a1")
+        ttk.Label(h, text="🎬  Emby → Telegram Pipeline",
+                  style="Header.TLabel").pack(side=tk.RIGHT)
+        self.v_hdr_sub = tk.StringVar(value=b("התחבר ל-Emby כדי להתחיל"))
+        ttk.Label(h, textvariable=self.v_hdr_sub,
+                  foreground="#666").pack(side=tk.RIGHT, padx=12)
+        ttk.Separator(self.root, orient="horizontal").pack(
+            side=tk.TOP, fill=tk.X)
+
+    # ---- History tab ----
+    def _build_history_tab(self) -> None:
+        f = ttk.Frame(self.notebook)
+        self.notebook.add(f, text="📜  " + b("היסטוריה"))
+
+        top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
+        ttk.Button(top, text=b("נקה היסטוריה"),
+                   command=self._clear_history).pack(side=tk.RIGHT, padx=4)
+        self.v_hist_count = tk.StringVar(value="")
+        ttk.Label(top, textvariable=self.v_hist_count,
+                  foreground="#666").pack(side=tk.RIGHT, padx=12)
+
+        cols = ("status", "when", "elapsed")
+        self.htree = ttk.Treeview(f, columns=cols, show="tree headings")
+        self.htree.heading("#0", text=b("שם"), anchor="e")
+        self.htree.heading("status", text=b("תוצאה"), anchor="e")
+        self.htree.heading("when", text=b("מתי"), anchor="e")
+        self.htree.heading("elapsed", text=b("משך"), anchor="e")
+        self.htree.column("#0", width=600, anchor="e")
+        self.htree.column("status", width=120, anchor="e")
+        self.htree.column("when", width=160, anchor="e")
+        self.htree.column("elapsed", width=80, anchor="e")
+        self.htree.tag_configure("ok", foreground="#1b5e20")
+        self.htree.tag_configure("skipped", foreground="#ef6c00")
+        self.htree.tag_configure("error", foreground="#b71c1c")
+        self.htree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+        self._refresh_history()
+
+    def _refresh_history(self) -> None:
+        for c in self.htree.get_children():
+            self.htree.delete(c)
+        history = self.cfg.get("history", [])
+        for entry in reversed(history[-500:]):
+            ts = entry.get("ts", 0)
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "?"
+            elapsed = entry.get("elapsed", 0)
+            elapsed_s = f"{elapsed//60}m{elapsed%60:02d}s" if elapsed else "-"
+            status = entry.get("status", "?")
+            status_he = {"ok": "✓ הושלם", "skipped": "⊝ דילוג",
+                         "error": "✗ שגיאה"}.get(status, status)
+            tag = status if status in ("ok", "skipped", "error") else ""
+            self.htree.insert("", "end", text=b(entry.get("title", "?")),
+                              values=(b(status_he), when, elapsed_s),
+                              tags=(tag,))
+        self.v_hist_count.set(b(f"סה\"כ {len(history)} פריטים"))
+
+    def _clear_history(self) -> None:
+        if not messagebox.askyesno(b("נקה היסטוריה"),
+                                   b("האם למחוק את כל היסטוריית ההורדות?")):
+            return
+        self.cfg["history"] = []
+        save_config(self.cfg)
+        self._refresh_history()
+
+    def _add_history(self, entry: Dict[str, Any]) -> None:
+        history = self.cfg.get("history", [])
+        history.append(entry)
+        # Cap at 500 most recent
+        self.cfg["history"] = history[-500:]
+        save_config(self.cfg)
+        try:
+            self.root.after(0, self._refresh_history)
+        except Exception:
+            pass
+
+    # ---- Keyboard shortcuts ----
+    def _bind_shortcuts(self) -> None:
+        self.root.bind("<Control-Return>", lambda e: self._start_worker())
+        self.root.bind("<Control-period>", lambda e: self._stop_worker())
+        self.root.bind("<Control-s>", lambda e: self._save_cfg())
+        self.root.bind("<Control-q>", lambda e: self._on_close())
+        self.root.bind("<Control-f>", lambda e: self._focus_search())
+        self.root.bind("<F5>", lambda e: self._connect_emby())
+
+    def _focus_search(self) -> None:
+        try:
+            self.notebook.select(1)
+            self.search_entry.focus_set()
+        except Exception:
+            pass
+
     # ---- Status bar ----
     def _build_status_bar(self) -> None:
         sb = ttk.Frame(self.root, relief="sunken", padding=(8, 3))
@@ -1177,11 +1463,15 @@ class App:
         self.v_sb_emby = tk.StringVar(value=b("Emby ✗"))
         self.v_sb_mode = tk.StringVar(value=b("מצב: ?"))
         self.v_sb_worker = tk.StringVar(value=b("Worker: עצור"))
+        self.v_sb_hint = tk.StringVar(value=b(
+            "קיצורים: Ctrl+Enter = התחל · Ctrl+. = עצור · Ctrl+F = חיפוש · F5 = התחבר"))
         ttk.Label(sb, textvariable=self.v_sb_emby).pack(side=tk.RIGHT, padx=8)
         ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
         ttk.Label(sb, textvariable=self.v_sb_mode).pack(side=tk.RIGHT, padx=8)
         ttk.Separator(sb, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=4)
         ttk.Label(sb, textvariable=self.v_sb_worker).pack(side=tk.RIGHT, padx=8)
+        ttk.Label(sb, textvariable=self.v_sb_hint,
+                  foreground="#888").pack(side=tk.LEFT, padx=8)
 
     def _on_close(self) -> None:
         try:
