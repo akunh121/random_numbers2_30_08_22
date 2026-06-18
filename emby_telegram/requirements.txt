@@ -1,0 +1,4 @@
+cloudscraper>=1.2.71
+requests>=2.31
+pyrogram>=2.0
+tgcrypto>=1.2.5
