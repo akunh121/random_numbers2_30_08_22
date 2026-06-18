@@ -70,6 +70,7 @@ import requests
 # ============================================================================
 # Config
 
+APP_VERSION = "1.0.0"
 APP_DIR = Path.home() / ".emby_telegram_pipeline"
 CONFIG_PATH = APP_DIR / "config.json"
 SESSIONS_DIR = APP_DIR / "sessions"
@@ -222,7 +223,9 @@ class EmbyClient:
 
     SUBTITLE_TEXT_FORMATS = {"srt", "vtt", "ass", "ssa", "sub"}
 
-    def playback_url(self, item_id: str) -> Optional[Tuple[str, str, int, List[Dict[str, str]]]]:
+    def playback_url(
+        self, item_id: str, quality: str = "first"
+    ) -> Optional[Tuple[str, str, int, List[Dict[str, str]]]]:
         """החזרת (URL, container, size, subtitles).
         subtitles: רשימה של {url, language, format, is_external} עבור כתוביות
         טקסטואליות זמינות. מחזיר None אם נכשל."""
@@ -253,7 +256,15 @@ class EmbyClient:
         sources = r.json().get("MediaSources") or []
         if not sources:
             return None
-        src = sources[0]
+        # Quality picker: "best" = largest size, "smallest" = smallest size,
+        # "first" = default (whatever Emby returned first)
+        if quality == "best" and len(sources) > 1:
+            src = max(sources, key=lambda s: int(s.get("Size") or 0))
+        elif quality == "smallest" and len(sources) > 1:
+            src = min(sources, key=lambda s: int(s.get("Size") or 0)
+                      if int(s.get("Size") or 0) > 0 else float("inf"))
+        else:
+            src = sources[0]
         direct = src.get("DirectStreamUrl")
         if not direct:
             return None
@@ -499,6 +510,8 @@ class PipelineWorker(threading.Thread):
                  download_subtitles: bool = True,
                  rate_limit_kbps: int = 0,
                  concurrent_workers: int = 1,
+                 quality: str = "first",
+                 schedule_at: str = "",
                  history_cb: Optional[Callable[[Dict[str, Any]], None]] = None):
         super().__init__(daemon=True)
         self.emby = emby
@@ -519,6 +532,8 @@ class PipelineWorker(threading.Thread):
         # KB/s → bytes/sec
         self.rate_limit_bps = max(0, int(rate_limit_kbps)) * 1024
         self.concurrent_workers = max(1, min(4, int(concurrent_workers)))
+        self.quality = quality if quality in ("first","best","smallest") else "first"
+        self.schedule_at = schedule_at.strip()
         # Lock to serialize uploads (pyrogram is not safe across threads)
         self._upload_lock = threading.Lock()
         self.history_cb = history_cb
@@ -532,6 +547,11 @@ class PipelineWorker(threading.Thread):
 
     def run(self) -> None:
         self.log_cb(b("Worker התחיל"))
+        # Scheduled start: wait until target HH:MM if set
+        if self.schedule_at:
+            self._wait_until_schedule()
+            if self.stop_flag.is_set():
+                return
         try:
             self.uploader.start()
             self.log_cb(b("Telegram מחובר"))
@@ -565,6 +585,30 @@ class PipelineWorker(threading.Thread):
                           "התור הסתיים — כל הפריטים נסתיימו")
         except Exception:
             pass
+
+    def _wait_until_schedule(self) -> None:
+        """Block until the configured schedule_at HH:MM, today or tomorrow."""
+        try:
+            hh, mm = self.schedule_at.split(":", 1)
+            target_h, target_m = int(hh), int(mm)
+        except (ValueError, AttributeError):
+            self.log_cb(f"לא הצלחתי לפענח זמן {self.schedule_at}, מתחיל מיד")
+            return
+        import datetime
+        now = datetime.datetime.now()
+        target = now.replace(hour=target_h, minute=target_m,
+                             second=0, microsecond=0)
+        if target <= now:
+            target += datetime.timedelta(days=1)
+        wait_s = (target - now).total_seconds()
+        self.log_cb(b(f"ממתין להתחלה ב-{self.schedule_at} "
+                      f"(בעוד {int(wait_s)//60} דקות)"))
+        end = time.time() + wait_s
+        while time.time() < end and not self.stop_flag.is_set():
+            remaining = end - time.time()
+            mins = int(remaining // 60)
+            self.status_cb(0, b(f"ממתין להתחלה (עוד {mins} דקות)"), 0)
+            time.sleep(min(30, remaining))
 
     def _consume_loop(self) -> None:
         while not self.stop_flag.is_set():
@@ -669,7 +713,7 @@ class PipelineWorker(threading.Thread):
 
     def _process(self, idx: int, job: Job) -> None:
         self.status_cb(idx, b("שולף URL"), 0)
-        info = self.emby.playback_url(job.item_id)
+        info = self.emby.playback_url(job.item_id, quality=self.quality)
         if not info:
             raise RuntimeError(b("PlaybackInfo החזיר שגיאה"))
         url, container, size, subs = info
@@ -835,6 +879,11 @@ class App:
         # Restore saved queue from previous run (only pending items)
         self._restore_queue()
 
+        # Apply persisted dark mode preference on startup
+        if self.cfg.get("dark_mode"):
+            try: self._apply_theme()
+            except Exception: pass
+
         # Live tick to update stats
         self.root.after(500, self._tick_stats)
 
@@ -983,6 +1032,25 @@ class App:
         ttk.Label(row7, text=b("(1-4. ההעלאות תמיד יורות אחת בכל פעם)"),
                   foreground="#666").pack(side=tk.RIGHT, padx=8)
 
+        # Quality picker
+        self.v_quality = tk.StringVar(value=self.cfg.get("quality", "first"))
+        row8 = ttk.Frame(au); row8.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row8, text=b("איכות"), width=18).pack(side=tk.RIGHT)
+        for label, val in [(b("ברירת מחדל"), "first"),
+                            (b("הגבוהה ביותר"), "best"),
+                            (b("הנמוכה ביותר"), "smallest")]:
+            ttk.Radiobutton(row8, text=label, variable=self.v_quality,
+                            value=val).pack(side=tk.RIGHT, padx=4)
+
+        # Schedule start
+        self.v_schedule = tk.StringVar(value=self.cfg.get("schedule_at", ""))
+        row9 = ttk.Frame(au); row9.pack(fill=tk.X, padx=6, pady=2)
+        ttk.Label(row9, text=b("התחל בשעה"), width=18).pack(side=tk.RIGHT)
+        ttk.Entry(row9, textvariable=self.v_schedule, width=8).pack(
+            side=tk.RIGHT, padx=4)
+        ttk.Label(row9, text=b("(HH:MM, ריק = מיידי. דוגמה: 23:30)"),
+                  foreground="#666").pack(side=tk.RIGHT, padx=8)
+
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
         ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
@@ -1020,6 +1088,8 @@ class App:
             "retry_delay": int(self.v_retry_delay.get() or 5),
             "rate_limit_kbps": int(self.v_rate_kbps.get() or 0),
             "concurrent_workers": int(self.v_concurrent.get() or 1),
+            "quality": self.v_quality.get() or "first",
+            "schedule_at": self.v_schedule.get().strip(),
         })
         save_config(self.cfg)
         messagebox.showinfo(b("נשמר"), b("ההגדרות נשמרו ל-") + str(CONFIG_PATH))
@@ -1709,6 +1779,8 @@ class App:
             download_subtitles=bool(self.v_subs.get()),
             rate_limit_kbps=int(self.v_rate_kbps.get() or 0),
             concurrent_workers=int(self.v_concurrent.get() or 1),
+            quality=self.v_quality.get() or "first",
+            schedule_at=self.v_schedule.get().strip(),
             history_cb=self._add_history,
         )
         self._stats_t0 = time.time()
@@ -1778,6 +1850,8 @@ class App:
         mb.add_cascade(label=b("עזרה"), menu=m_help)
         m_help.add_command(label=b("קיצורי מקלדת"),
                            command=self._show_shortcuts)
+        m_help.add_command(label=b("בדוק עדכון"),
+                           command=self._check_update)
         m_help.add_command(label=b("אודות"), command=self._show_about)
 
     def _apply_theme(self) -> None:
@@ -1786,23 +1860,51 @@ class App:
         style = ttk.Style()
         if dark:
             bg, fg, sel = "#1e1e1e", "#e0e0e0", "#2a3f5f"
+            card = "#252525"
+            entry_bg = "#2b2b2b"
             self.root.configure(bg=bg)
             style.configure(".", background=bg, foreground=fg,
-                            fieldbackground="#2b2b2b")
-            style.configure("Treeview", background="#2b2b2b",
-                            foreground=fg, fieldbackground="#2b2b2b")
+                            fieldbackground=entry_bg)
+            style.configure("Treeview", background=entry_bg,
+                            foreground=fg, fieldbackground=entry_bg,
+                            rowheight=24)
+            style.configure("Treeview.Heading", background=card,
+                            foreground=fg)
             style.configure("TLabel", background=bg, foreground=fg)
             style.configure("TFrame", background=bg)
             style.configure("TLabelframe", background=bg, foreground=fg)
             style.configure("TLabelframe.Label", background=bg, foreground=fg)
-            style.configure("TNotebook", background=bg)
-            style.configure("TNotebook.Tab", background="#2a2a2a",
-                            foreground=fg)
-            style.configure("Header.TLabel", foreground="#64b5f6")
+            style.configure("TNotebook", background=bg, tabposition="ne")
+            style.configure("TNotebook.Tab", background=card, foreground=fg,
+                            padding=(8, 4))
+            style.map("TNotebook.Tab",
+                      background=[("selected", "#3a3a3a")],
+                      foreground=[("selected", "#64b5f6")])
+            style.configure("Header.TLabel", foreground="#64b5f6",
+                            background=bg)
+            style.configure("TEntry", fieldbackground=entry_bg, foreground=fg)
+            style.configure("TButton", background=card, foreground=fg)
+            style.configure("TCheckbutton", background=bg, foreground=fg)
+            style.configure("TRadiobutton", background=bg, foreground=fg)
+            style.configure("TSpinbox", fieldbackground=entry_bg, foreground=fg)
             style.map("Treeview", background=[("selected", sel)])
+            # Re-tag color rows in dark variant
+            for tree_attr in ("qtree", "htree"):
+                if hasattr(self, tree_attr):
+                    t = getattr(self, tree_attr)
+                    t.tag_configure("done", background="#1b3a1b",
+                                    foreground="#a5d6a7")
+                    t.tag_configure("active", background="#1a2e4d",
+                                    foreground="#90caf9")
+                    t.tag_configure("error", background="#3a1818",
+                                    foreground="#ef9a9a")
+                    t.tag_configure("skipped", background="#3a2a18",
+                                    foreground="#ffb74d")
+                    t.tag_configure("pending", foreground="#9e9e9e")
+            if hasattr(self, "txt_log"):
+                self.txt_log.configure(bg=entry_bg, fg=fg,
+                                       insertbackground=fg)
         else:
-            self.root.configure(bg=self.root.winfo_default_root_bg() if False
-                                else "")
             try:
                 style.theme_use("clam")
             except tk.TclError:
@@ -1812,6 +1914,21 @@ class App:
             style.configure("Treeview", background="white",
                             foreground="black", fieldbackground="white")
             style.configure("Header.TLabel", foreground="#0d47a1")
+            for tree_attr in ("qtree", "htree"):
+                if hasattr(self, tree_attr):
+                    t = getattr(self, tree_attr)
+                    t.tag_configure("done", background="#dcedc8",
+                                    foreground="#1b5e20")
+                    t.tag_configure("active", background="#bbdefb",
+                                    foreground="#0d47a1")
+                    t.tag_configure("error", background="#ffcdd2",
+                                    foreground="#b71c1c")
+                    t.tag_configure("skipped", background="#fff3e0",
+                                    foreground="#e65100")
+                    t.tag_configure("pending", foreground="#666666")
+            if hasattr(self, "txt_log"):
+                self.txt_log.configure(bg="white", fg="black",
+                                       insertbackground="black")
 
     # ---- File operations: import/export ----
     def _export_queue(self) -> None:
@@ -1889,9 +2006,32 @@ class App:
 
     def _show_about(self) -> None:
         messagebox.showinfo(b("אודות"),
-            "Emby → Telegram Pipeline\n"
+            f"Emby → Telegram Pipeline · v{APP_VERSION}\n"
             "מורידה תוכן מ-Emby, מארגנת בתיקיות, מעלה לטלגרם.\n"
             "תומך ב-Smart Resume, Auto-Split, Retry, ועוד.")
+
+    def _check_update(self) -> None:
+        """Best-effort check against the GitHub releases API."""
+        threading.Thread(target=self._do_check_update, daemon=True).start()
+
+    def _do_check_update(self) -> None:
+        try:
+            import requests as _r
+            url = ("https://api.github.com/repos/akunh121/"
+                   "random_numbers2_30_08_22/releases/latest")
+            r = _r.get(url, timeout=10)
+            if r.status_code == 200:
+                latest = (r.json().get("tag_name") or "").lstrip("v")
+                if latest and latest != APP_VERSION:
+                    msg = b(f"גרסה חדשה זמינה: v{latest} "
+                            f"(הנוכחית: v{APP_VERSION})")
+                else:
+                    msg = b(f"אתה על הגרסה האחרונה (v{APP_VERSION})")
+            else:
+                msg = b(f"לא הצלחתי לבדוק: HTTP {r.status_code}")
+        except Exception as e:
+            msg = b(f"בדיקה נכשלה: {e}")
+        self.root.after(0, lambda: messagebox.showinfo(b("בדיקת עדכון"), msg))
 
     # ---- Header ----
     def _build_header(self) -> None:

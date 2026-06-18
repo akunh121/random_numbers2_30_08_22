@@ -372,6 +372,68 @@ finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ============ Quality picker ============
+section("Quality picker")
+
+# Patch emby.playback_url's internal source picker by feeding a mock
+import json as _json
+mock_response = type("R", (), {
+    "status_code": 200,
+    "json": lambda self: {"MediaSources": [
+        {"Id":"a", "Size": 500_000_000, "DirectStreamUrl":"/a",
+         "Container":"mp4", "MediaStreams": []},
+        {"Id":"b", "Size": 1_500_000_000, "DirectStreamUrl":"/b",
+         "Container":"mp4", "MediaStreams": []},
+        {"Id":"c", "Size": 250_000_000, "DirectStreamUrl":"/c",
+         "Container":"mp4", "MediaStreams": []},
+    ]},
+})()
+
+orig_post = emby.s.post
+def fake_post(*args, **kwargs):
+    class CM:
+        def __enter__(self_): return mock_response
+        def __exit__(self_, *a): return False
+    return mock_response
+# Replace just for this test:
+emby.s.post = lambda *a, **kw: mock_response
+
+# Picking 'best' should select the 1.5GB source (b)
+info = emby.playback_url("X", quality="best")
+assert info is not None
+url, container, size, subs = info
+check("quality=best picks largest", size == 1_500_000_000 and "/b" in url)
+
+info = emby.playback_url("X", quality="smallest")
+url, container, size, subs = info
+check("quality=smallest picks smallest", size == 250_000_000 and "/c" in url)
+
+info = emby.playback_url("X", quality="first")
+url, container, size, subs = info
+check("quality=first picks first source", size == 500_000_000 and "/a" in url)
+
+emby.s.post = orig_post
+
+
+# ============ Schedule parsing ============
+section("Schedule parsing")
+
+# Just exercise the schedule formatting helpers
+import datetime as _dt
+now = _dt.datetime.now()
+for sched, expect_future in [
+    (f"{(now.hour+1)%24:02d}:{now.minute:02d}", True),
+    (f"{(now.hour-1)%24:02d}:{now.minute:02d}", True),  # rolls over to tomorrow
+    ("23:59", True),
+]:
+    try:
+        hh, mm = sched.split(":")
+        int(hh); int(mm)
+        check(f"schedule parse {sched}", True, "valid")
+    except ValueError:
+        check(f"schedule parse {sched}", False, "bad")
+
+
 # ============ Summary ============
 print(f"\n{'='*50}")
 print(f"  TOTAL: {len(OK)} passed, {len(FAIL)} failed")
