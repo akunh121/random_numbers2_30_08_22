@@ -985,6 +985,8 @@ class App:
         self._field(card, b("Chat / @משתמש"), self.v_chat,
                     hint=b('"me" ל-Saved Messages, או -100xxx לערוץ'))
         self._hint(card, b("השג API ID + Hash מ-https://my.telegram.org"))
+        # Connect-now button row (opens the QR / SMS-code login modal)
+        self._connect_tg_row(card)
 
         # Card 3: Download
         card = self._card(body, "💾", b("הורדה"),
@@ -1228,6 +1230,80 @@ class App:
         tk.Label(body, text=text, bg=c["card"], fg=c["fg_dim"],
                  anchor="e", font=("TkDefaultFont", 9)).pack(
             fill=tk.X, pady=(4, 0))
+
+    def _connect_tg_row(self, card_wrap: tk.Frame) -> None:
+        """A button row that opens the Telegram-login modal."""
+        c = self._card_colors()
+        body = getattr(card_wrap, "_body")
+        row = tk.Frame(body, bg=c["card"], bd=0)
+        row.pack(fill=tk.X, pady=(12, 0))
+        btn = tk.Button(row, text=b("התחבר ל-Telegram עכשיו"),
+                        command=self._open_telegram_login,
+                        bg=c["accent"], fg=c["fg_inv"], bd=0, relief="flat",
+                        cursor="hand2", padx=16, pady=6,
+                        font=("TkDefaultFont", 10, "bold"))
+        btn.pack(side=tk.RIGHT, padx=4)
+        self.v_tg_status = tk.StringVar(value="")
+        tk.Label(row, textvariable=self.v_tg_status, bg=c["card"],
+                 fg=c["fg_dim"], font=("TkDefaultFont", 9)).pack(
+            side=tk.RIGHT, padx=8)
+        # Reflect existing session file
+        self._refresh_tg_status()
+
+    def _refresh_tg_status(self) -> None:
+        mode = self.v_mode.get() if hasattr(self, "v_mode") else ""
+        if mode == "local":
+            self.v_tg_status.set(b("מצב מקומי — אין צורך בהתחברות"))
+            return
+        name = "user_session" if mode == "user" else "bot_session"
+        sess_file = SESSIONS_DIR / f"{name}.session"
+        if sess_file.exists():
+            self.v_tg_status.set(b("✓ session קיים"))
+        else:
+            self.v_tg_status.set(b("✗ עדיין לא התחברת"))
+
+    # ---- Telegram login modal ----
+    def _open_telegram_login(self) -> None:
+        # Validate API ID/Hash up front
+        try:
+            api_id = int(self.v_api_id.get().strip())
+        except ValueError:
+            messagebox.showerror("Telegram", b("API ID חייב להיות מספר"))
+            return
+        api_hash = self.v_api_hash.get().strip()
+        if not api_id or not api_hash:
+            messagebox.showerror("Telegram",
+                                 b("חסרים API ID או API Hash"))
+            return
+        mode = self.v_mode.get()
+        if mode == "bot":
+            self._login_bot_quick(api_id, api_hash)
+            return
+        if mode == "local":
+            messagebox.showinfo("Telegram",
+                                b("במצב מקומי לא צריך להתחבר"))
+            return
+        # User mode: show full modal with QR + SMS code options
+        TelegramLoginDialog(self, api_id, api_hash)
+
+    def _login_bot_quick(self, api_id: int, api_hash: str) -> None:
+        """Bot mode just needs the token; no interactive flow."""
+        token = self.v_bot_token.get().strip()
+        if not token:
+            messagebox.showerror("Telegram", b("חסר טוקן בוט"))
+            return
+        try:
+            SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+            client = PyroClient(
+                name="bot_session", workdir=str(SESSIONS_DIR),
+                api_id=api_id, api_hash=api_hash,
+                bot_token=token,
+            )
+            client.start(); client.stop()
+            messagebox.showinfo("Telegram", b("התחבר בהצלחה כבוט!"))
+            self._refresh_tg_status()
+        except Exception as e:
+            messagebox.showerror("Telegram", b(f"חיבור הבוט נכשל: {e}"))
 
     def _restyle_config_tab(self) -> None:
         """Re-apply colors to the custom-styled config widgets after a
@@ -2434,6 +2510,326 @@ class App:
     # ---- Run ----
     def run(self) -> None:
         self.root.mainloop()
+
+
+class TelegramLoginDialog:
+    """Modal that lets the user log in to Telegram from the GUI:
+    either by entering the SMS code (no terminal needed) or by scanning
+    a QR code with their phone."""
+
+    def __init__(self, app: "App", api_id: int, api_hash: str):
+        self.app = app
+        self.api_id = api_id
+        self.api_hash = api_hash
+        c = self.app._card_colors()
+
+        self.top = tk.Toplevel(app.root)
+        self.top.title(b("התחברות לטלגרם"))
+        self.top.geometry("680x520")
+        self.top.configure(bg=c["page"])
+        self.top.transient(app.root)
+        self.top.grab_set()
+
+        # Header
+        hdr = tk.Frame(self.top, bg=c["page"], pady=12)
+        hdr.pack(fill=tk.X, padx=20)
+        tk.Label(hdr, text="✈  " + b("חיבור לטלגרם"),
+                 bg=c["page"], fg=c["fg"],
+                 font=("TkDefaultFont", 14, "bold")).pack(side=tk.RIGHT)
+
+        # Method toggle (RTL: QR on the right, SMS on the left)
+        toggle = tk.Frame(self.top, bg=c["page"], pady=8)
+        toggle.pack(fill=tk.X, padx=20)
+        self.v_method = tk.StringVar(value="qr")
+        tk.Radiobutton(toggle, text=b("QR Code (סרוק עם הטלפון)"),
+                       value="qr", variable=self.v_method,
+                       command=self._switch_method,
+                       bg=c["page"], fg=c["fg"],
+                       activebackground=c["page"], selectcolor=c["page"],
+                       font=("TkDefaultFont", 10)).pack(
+            side=tk.RIGHT, padx=8)
+        tk.Radiobutton(toggle, text=b("קוד SMS"),
+                       value="sms", variable=self.v_method,
+                       command=self._switch_method,
+                       bg=c["page"], fg=c["fg"],
+                       activebackground=c["page"], selectcolor=c["page"],
+                       font=("TkDefaultFont", 10)).pack(
+            side=tk.RIGHT, padx=8)
+
+        # Body: holds either QR pane or SMS pane
+        self.body = tk.Frame(self.top, bg=c["card"], bd=0, padx=20, pady=20)
+        self.body.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 12))
+
+        # Status line
+        self.v_status = tk.StringVar(value="")
+        tk.Label(self.top, textvariable=self.v_status,
+                 bg=c["page"], fg=c["fg_dim"],
+                 font=("TkDefaultFont", 10),
+                 anchor="e").pack(fill=tk.X, padx=24, pady=(0, 12))
+
+        # State
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._phone_code_hash: Optional[str] = None
+        self._client: Optional[PyroClient] = None
+
+        self.top.protocol("WM_DELETE_WINDOW", self._close)
+        self._switch_method()
+
+    def _set_status(self, msg: str) -> None:
+        self.app.root.after(0, lambda: self.v_status.set(b(msg)))
+
+    def _clear_body(self) -> None:
+        for w in self.body.winfo_children():
+            w.destroy()
+
+    def _switch_method(self) -> None:
+        # Cancel any in-flight thread first
+        self._stop.set()
+        time.sleep(0.05)
+        self._stop = threading.Event()
+        self._clear_body()
+        if self.v_method.get() == "qr":
+            self._build_qr_pane()
+        else:
+            self._build_sms_pane()
+
+    # ---- QR pane ----
+    def _build_qr_pane(self) -> None:
+        c = self.app._card_colors()
+        wrap = tk.Frame(self.body, bg=c["card"])
+        wrap.pack(fill=tk.BOTH, expand=True)
+        tk.Label(wrap, text=b("פתח את אפליקציית טלגרם בטלפון →"
+                              " הגדרות → מכשירים → קישור מכשיר → סרוק"),
+                 bg=c["card"], fg=c["fg"], anchor="e", justify="right",
+                 wraplength=560,
+                 font=("TkDefaultFont", 10)).pack(
+            anchor="e", pady=(0, 16))
+        self.qr_label = tk.Label(wrap, bg=c["card"])
+        self.qr_label.pack(pady=8)
+        self._set_status("מייצר QR code...")
+        self._thread = threading.Thread(target=self._qr_worker, daemon=True)
+        self._thread.start()
+
+    def _qr_worker(self) -> None:
+        try:
+            import asyncio
+            from pyrogram import Client as _PC
+            import qrcode
+
+            async def run():
+                SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+                client = _PC(name="user_session", workdir=str(SESSIONS_DIR),
+                              api_id=self.api_id, api_hash=self.api_hash,
+                              phone_number=self.app.v_phone.get().strip() or None)
+                await client.connect()
+                self._client = client
+                try:
+                    while not self._stop.is_set():
+                        qr = await client.qr_login()
+                        self._show_qr(qr.url)
+                        try:
+                            await qr.wait(timeout=30)
+                            self._set_status("התחברת בהצלחה! שומר session...")
+                            break
+                        except asyncio.TimeoutError:
+                            if self._stop.is_set():
+                                break
+                            self._set_status("QR פג - מרענן...")
+                            continue
+                        except Exception as e:
+                            # SessionPasswordNeeded — show 2FA dialog
+                            cls = e.__class__.__name__
+                            if "PasswordHash" in cls or "PasswordNeed" in cls:
+                                pwd = self._prompt_password()
+                                if pwd is None:
+                                    return
+                                await client.check_password(pwd)
+                                self._set_status("התחברת בהצלחה!")
+                                break
+                            raise
+                finally:
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                self.app.root.after(0, self._on_login_success)
+
+            asyncio.run(run())
+        except Exception as e:
+            self._set_status(f"שגיאה: {e}")
+
+    def _show_qr(self, url: str) -> None:
+        import qrcode
+        from PIL import ImageTk, Image
+        img = qrcode.make(url)
+        img = img.resize((280, 280))
+        self._qr_photo = ImageTk.PhotoImage(img)
+        self.app.root.after(0,
+            lambda: self.qr_label.configure(image=self._qr_photo))
+        self._set_status("ממתין לסריקה (יתרענן כל 30s)...")
+
+    # ---- SMS pane ----
+    def _build_sms_pane(self) -> None:
+        c = self.app._card_colors()
+        wrap = tk.Frame(self.body, bg=c["card"])
+        wrap.pack(fill=tk.BOTH, expand=True)
+
+        # Phone row
+        phone_row = tk.Frame(wrap, bg=c["card"])
+        phone_row.pack(fill=tk.X, pady=8)
+        tk.Label(phone_row, text=b("טלפון (עם קידומת מדינה)"),
+                 bg=c["card"], fg=c["fg"], anchor="e",
+                 font=("TkDefaultFont", 10), width=24).pack(side=tk.RIGHT)
+        self.v_login_phone = tk.StringVar(value=self.app.v_phone.get())
+        tk.Entry(phone_row, textvariable=self.v_login_phone,
+                 bg=c["input_bg"], fg=c["fg"], insertbackground=c["fg"],
+                 bd=0, relief="flat", highlightthickness=1,
+                 highlightbackground=c["input_border"],
+                 highlightcolor=c["accent"], justify="right",
+                 width=28).pack(side=tk.RIGHT, padx=8, ipady=4)
+        self._btn_send = tk.Button(phone_row, text=b("שלח קוד"),
+                                    command=self._send_sms_code,
+                                    bg=c["accent"], fg=c["fg_inv"],
+                                    bd=0, relief="flat", cursor="hand2",
+                                    padx=14, pady=4,
+                                    font=("TkDefaultFont", 10, "bold"))
+        self._btn_send.pack(side=tk.RIGHT, padx=4)
+
+        # Code row
+        code_row = tk.Frame(wrap, bg=c["card"])
+        code_row.pack(fill=tk.X, pady=8)
+        tk.Label(code_row, text=b("קוד אימות (מאפליקציית טלגרם)"),
+                 bg=c["card"], fg=c["fg"], anchor="e",
+                 font=("TkDefaultFont", 10), width=24).pack(side=tk.RIGHT)
+        self.v_code = tk.StringVar()
+        ent = tk.Entry(code_row, textvariable=self.v_code,
+                       bg=c["input_bg"], fg=c["fg"],
+                       insertbackground=c["fg"], bd=0, relief="flat",
+                       highlightthickness=1,
+                       highlightbackground=c["input_border"],
+                       highlightcolor=c["accent"], justify="center",
+                       width=10, font=("TkFixedFont", 14))
+        ent.pack(side=tk.RIGHT, padx=8, ipady=4)
+        self._btn_verify = tk.Button(code_row, text=b("אמת קוד"),
+                                      command=self._verify_sms_code,
+                                      bg=c["accent"], fg=c["fg_inv"],
+                                      bd=0, relief="flat", cursor="hand2",
+                                      padx=14, pady=4,
+                                      font=("TkDefaultFont", 10, "bold"),
+                                      state="disabled")
+        self._btn_verify.pack(side=tk.RIGHT, padx=4)
+
+        tk.Label(wrap,
+                 text=b("טלגרם ישלח לך הודעה עם 5 ספרות באפליקציה."),
+                 bg=c["card"], fg=c["fg_dim"],
+                 font=("TkDefaultFont", 9),
+                 anchor="e").pack(anchor="e", pady=(4, 0))
+
+    def _send_sms_code(self) -> None:
+        phone = self.v_login_phone.get().strip()
+        if not phone:
+            self._set_status("הכנס טלפון")
+            return
+        # Persist the phone to the main form
+        self.app.v_phone.set(phone)
+        self._set_status("שולח קוד...")
+        self._btn_send.configure(state="disabled")
+        threading.Thread(target=self._do_send_code, args=(phone,),
+                         daemon=True).start()
+
+    def _do_send_code(self, phone: str) -> None:
+        try:
+            SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+            client = PyroClient(
+                name="user_session", workdir=str(SESSIONS_DIR),
+                api_id=self.api_id, api_hash=self.api_hash,
+                phone_number=phone,
+            )
+            client.connect()
+            sent = client.send_code(phone)
+            self._client = client
+            self._phone_code_hash = sent.phone_code_hash
+            self._set_status("✓ קוד נשלח לטלפון. הכנס אותו ולחץ אמת.")
+            self.app.root.after(0,
+                lambda: self._btn_verify.configure(state="normal"))
+        except Exception as e:
+            self._set_status(f"שליחה נכשלה: {e}")
+            self.app.root.after(0,
+                lambda: self._btn_send.configure(state="normal"))
+
+    def _verify_sms_code(self) -> None:
+        code = self.v_code.get().strip()
+        if not code:
+            self._set_status("הכנס קוד")
+            return
+        if not self._client or not self._phone_code_hash:
+            self._set_status("נא לבקש קוד קודם")
+            return
+        self._set_status("מאמת...")
+        self._btn_verify.configure(state="disabled")
+        threading.Thread(target=self._do_verify_code, args=(code,),
+                         daemon=True).start()
+
+    def _do_verify_code(self, code: str) -> None:
+        try:
+            phone = self.v_login_phone.get().strip()
+            try:
+                self._client.sign_in(phone, self._phone_code_hash, code)
+            except Exception as e:
+                cls = e.__class__.__name__
+                if "PasswordHash" in cls or "PasswordNeed" in cls \
+                        or "2FA" in str(e) or "two-step" in str(e).lower():
+                    pwd = self._prompt_password()
+                    if pwd is None:
+                        self._set_status("בוטל")
+                        return
+                    self._client.check_password(pwd)
+                else:
+                    raise
+            self._set_status("✓ התחברת בהצלחה!")
+            try:
+                self._client.disconnect()
+            except Exception:
+                pass
+            self.app.root.after(0, self._on_login_success)
+        except Exception as e:
+            self._set_status(f"אימות נכשל: {e}")
+            self.app.root.after(0,
+                lambda: self._btn_verify.configure(state="normal"))
+
+    def _prompt_password(self) -> Optional[str]:
+        """Block-prompt for the 2FA password via a tk simpledialog."""
+        from tkinter import simpledialog
+        result = [None]
+        ev = threading.Event()
+        def ask():
+            result[0] = simpledialog.askstring(
+                b("אימות דו-שלבי"),
+                b("הזן את הסיסמה (2FA):"),
+                show="*", parent=self.top)
+            ev.set()
+        self.app.root.after(0, ask)
+        ev.wait(timeout=300)
+        return result[0]
+
+    def _on_login_success(self) -> None:
+        self.app._refresh_tg_status()
+        messagebox.showinfo("Telegram", b("התחברות מוצלחת!"), parent=self.top)
+        self._close()
+
+    def _close(self) -> None:
+        self._stop.set()
+        try:
+            if self._client and self._client.is_connected:
+                self._client.disconnect()
+        except Exception:
+            pass
+        try:
+            self.top.grab_release()
+            self.top.destroy()
+        except Exception:
+            pass
 
 
 def main() -> int:

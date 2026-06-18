@@ -3,3 +3,5 @@ requests>=2.31
 pyrogram>=2.0
 tgcrypto>=1.2.5
 python-bidi>=0.4.2
+qrcode>=7.4
+Pillow>=10.0
