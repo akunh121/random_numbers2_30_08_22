@@ -193,8 +193,12 @@ class EmbyClient:
             out.append(it)
         return out
 
-    def playback_url(self, item_id: str) -> Optional[Tuple[str, str, int]]:
-        """החזרת (URL, container, size). מחזיר None אם נכשל."""
+    SUBTITLE_TEXT_FORMATS = {"srt", "vtt", "ass", "ssa", "sub"}
+
+    def playback_url(self, item_id: str) -> Optional[Tuple[str, str, int, List[Dict[str, str]]]]:
+        """החזרת (URL, container, size, subtitles).
+        subtitles: רשימה של {url, language, format, is_external} עבור כתוביות
+        טקסטואליות זמינות. מחזיר None אם נכשל."""
         url = f"{self.base}/Items/{item_id}/PlaybackInfo?UserId={self.user_id}"
         headers = {**self._h(), "Content-Type": "application/json"}
         payload = {
@@ -228,7 +232,37 @@ class EmbyClient:
             return None
         if direct.startswith("/"):
             direct = self.base + direct
-        return direct, src.get("Container") or "mp4", int(src.get("Size") or 0)
+
+        # Collect subtitle streams (text-only). Image-based subs (PGS/VOBSUB)
+        # can't be played as standalone files, so skip them.
+        ms_id = src.get("Id") or f"mediasource_{item_id}"
+        # Try to extract the api_key the server gave us in DirectStreamUrl,
+        # to reuse it for subtitle endpoints which require it too.
+        api_key_match = re.search(r"api_key=([0-9a-f]+)", direct)
+        api_key = api_key_match.group(1) if api_key_match else self.token
+        subs: List[Dict[str, str]] = []
+        for stream in (src.get("MediaStreams") or []):
+            if stream.get("Type") != "Subtitle":
+                continue
+            codec = (stream.get("Codec") or "").lower()
+            if codec not in self.SUBTITLE_TEXT_FORMATS:
+                continue
+            idx = stream.get("Index")
+            if idx is None:
+                continue
+            lang = stream.get("Language") or "und"
+            fmt = "srt" if codec in ("srt", "sub") else codec
+            sub_url = (
+                f"{self.base}/Videos/{item_id}/{ms_id}/Subtitles/"
+                f"{idx}/Stream.{fmt}?api_key={api_key}"
+            )
+            subs.append({
+                "url": sub_url, "language": lang, "format": fmt,
+                "is_external": "true" if stream.get("IsExternal") else "false",
+                "display_title": stream.get("DisplayTitle") or lang,
+            })
+
+        return direct, src.get("Container") or "mp4", int(src.get("Size") or 0), subs
 
 
 # ============================================================================
@@ -398,20 +432,20 @@ class PipelineWorker(threading.Thread):
         info = self.emby.playback_url(job.item_id)
         if not info:
             raise RuntimeError(b("PlaybackInfo החזיר שגיאה"))
-        url, container, size = info
+        url, container, size, subs = info
         if container not in ("mp4", "mkv", "webm", "m4v", "mov", "avi", "ts"):
             container = "mp4"
         file_name = sanitize(f"{job.file_basename}.{container}")
         dest = self.download_dir / file_name
 
-        # Download
+        # Download video
         self.log_cb(f"[{job.title}] מוריד {human_size(size) if size else '?'}")
         def dl_prog(done, total):
             pct = (done / total * 100) if total else 0
             self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
         stream_download(self.emby.s, url, dest, dl_prog)
 
-        # Upload
+        # Upload video
         actual = dest.stat().st_size
         self.log_cb(f"[{job.title}] מעלה {human_size(actual)}")
         def up_prog(done, total):
@@ -423,12 +457,41 @@ class PipelineWorker(threading.Thread):
             self.log_cb(f"[{job.title}] העלאה נכשלה: {e}")
             raise
 
-        # Delete
+        # Delete video
         try:
             dest.unlink()
             self.log_cb(f"[{job.title}] קובץ נמחק")
         except OSError as e:
             self.log_cb(f"[{job.title}] לא הצלחתי למחוק: {e}")
+
+        # Subtitles - download and upload each text-format sub
+        if subs:
+            self.log_cb(f"[{job.title}] נמצאו {len(subs)} כתוביות")
+            for i, sub in enumerate(subs):
+                lang = sub["language"]
+                fmt = sub["format"]
+                sub_basename = sanitize(f"{job.file_basename}.{lang}.{fmt}")
+                sub_dest = self.download_dir / sub_basename
+                try:
+                    self.status_cb(idx, b(f"מוריד כתוביות ({lang})"), 0)
+                    def sub_prog(done, total):
+                        pct = (done / total * 100) if total else 0
+                        self.status_cb(
+                            idx, b(f"כתוביות {lang} {human_size(done)}"), pct)
+                    stream_download(self.emby.s, sub["url"], sub_dest, sub_prog)
+                    self.status_cb(idx, b(f"מעלה כתוביות ({lang})"), 0)
+                    self.uploader.upload(
+                        sub_dest,
+                        caption=f"{job.title} — כתוביות [{lang}]",
+                        progress_cb=lambda d, t: None,
+                    )
+                    self.log_cb(f"[{job.title}] כתוביות {lang} נשלחו")
+                except Exception as e:
+                    self.log_cb(f"[{job.title}] כתוביות {lang} נכשלו: {e}")
+                finally:
+                    if sub_dest.exists():
+                        try: sub_dest.unlink()
+                        except OSError: pass
 
         self.status_cb(idx, b("הושלם"), 100)
 
