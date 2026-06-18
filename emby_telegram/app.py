@@ -38,6 +38,25 @@ except ImportError:
     print("נדרש: pip install cloudscraper", file=sys.stderr)
     raise
 
+# Optional: BiDi text shaping for platforms (Linux without fribidi)
+# whose Tk build doesn't reorder RTL text correctly.
+_LINUX = sys.platform.startswith("linux")
+try:
+    from bidi.algorithm import get_display as _bidi_get_display  # type: ignore
+except ImportError:
+    _bidi_get_display = None
+
+
+def b(s: str) -> str:
+    """Apply BiDi reordering only where Tk doesn't do it (Linux).
+    On macOS / Windows, Tk shapes RTL natively, so return unchanged."""
+    if _LINUX and _bidi_get_display is not None and s:
+        try:
+            return _bidi_get_display(s)
+        except Exception:
+            return s
+    return s
+
 try:
     from pyrogram import Client as PyroClient
     from pyrogram.errors import RPCError
@@ -289,7 +308,7 @@ class TelegramUploader:
     def upload(self, file_path: Path, caption: str,
                progress_cb: Callable[[int, int], None]) -> None:
         if not self.client:
-            raise RuntimeError("Telegram client לא הופעל")
+            raise RuntimeError(b("Telegram client לא הופעל"))
 
         def _prog(current, total):
             progress_cb(current, total)
@@ -346,10 +365,10 @@ class PipelineWorker(threading.Thread):
         self.stop_flag.set()
 
     def run(self) -> None:
-        self.log_cb("Worker התחיל")
+        self.log_cb(b("Worker התחיל"))
         try:
             self.uploader.start()
-            self.log_cb("Telegram מחובר")
+            self.log_cb(b("Telegram מחובר"))
         except Exception as e:
             self.log_cb(f"שגיאת Telegram: {e}")
             return
@@ -365,20 +384,20 @@ class PipelineWorker(threading.Thread):
             except Exception as e:
                 tb = traceback.format_exc()
                 self.log_cb(f"[{job.title}] FATAL: {e}\n{tb}")
-                self.status_cb(idx, f"שגיאה: {e}", 0)
+                self.status_cb(idx, b(f"שגיאה: {e}"), 0)
             self.q.task_done()
 
         try:
             self.uploader.stop()
         except Exception:
             pass
-        self.log_cb("Worker נעצר")
+        self.log_cb(b("Worker נעצר"))
 
     def _process(self, idx: int, job: Job) -> None:
-        self.status_cb(idx, "שולף URL", 0)
+        self.status_cb(idx, b("שולף URL"), 0)
         info = self.emby.playback_url(job.item_id)
         if not info:
-            raise RuntimeError("PlaybackInfo החזיר שגיאה")
+            raise RuntimeError(b("PlaybackInfo החזיר שגיאה"))
         url, container, size = info
         if container not in ("mp4", "mkv", "webm", "m4v", "mov", "avi", "ts"):
             container = "mp4"
@@ -389,7 +408,7 @@ class PipelineWorker(threading.Thread):
         self.log_cb(f"[{job.title}] מוריד {human_size(size) if size else '?'}")
         def dl_prog(done, total):
             pct = (done / total * 100) if total else 0
-            self.status_cb(idx, f"מוריד {human_size(done)}/{human_size(total)}", pct)
+            self.status_cb(idx, b(f"מוריד {human_size(done)}/{human_size(total)}"), pct)
         stream_download(self.emby.s, url, dest, dl_prog)
 
         # Upload
@@ -397,7 +416,7 @@ class PipelineWorker(threading.Thread):
         self.log_cb(f"[{job.title}] מעלה {human_size(actual)}")
         def up_prog(done, total):
             pct = (done / total * 100) if total else 0
-            self.status_cb(idx, f"מעלה {human_size(done)}/{human_size(total)}", pct)
+            self.status_cb(idx, b(f"מעלה {human_size(done)}/{human_size(total)}"), pct)
         try:
             self.uploader.upload(dest, caption=job.title, progress_cb=up_prog)
         except Exception as e:
@@ -411,7 +430,7 @@ class PipelineWorker(threading.Thread):
         except OSError as e:
             self.log_cb(f"[{job.title}] לא הצלחתי למחוק: {e}")
 
-        self.status_cb(idx, "הושלם", 100)
+        self.status_cb(idx, b("הושלם"), 100)
 
 
 # ============================================================================
@@ -441,7 +460,7 @@ class App:
     # ---- Config tab ----
     def _build_config_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text="הגדרות")
+        self.notebook.add(f, text=b("הגדרות"))
 
         # Emby
         em = ttk.LabelFrame(f, text="Emby")
@@ -463,10 +482,10 @@ class App:
         tg.pack(fill=tk.X, padx=8, pady=4)
         self.v_mode = tk.StringVar(value=self.cfg.get("tg_mode", "bot"))
         mr = ttk.Frame(tg); mr.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(mr, text="מצב", width=14).pack(side=tk.LEFT)
-        ttk.Radiobutton(mr, text="בוט (עד 50MB)", variable=self.v_mode,
+        ttk.Label(mr, text=b("מצב"), width=14).pack(side=tk.LEFT)
+        ttk.Radiobutton(mr, text=b("בוט (עד 50MB)"), variable=self.v_mode,
                         value="bot").pack(side=tk.LEFT)
-        ttk.Radiobutton(mr, text="חשבון משתמש (עד 2GB)", variable=self.v_mode,
+        ttk.Radiobutton(mr, text=b("חשבון משתמש (עד 2GB)"), variable=self.v_mode,
                         value="user").pack(side=tk.LEFT)
 
         self.v_api_id = tk.StringVar(value=str(self.cfg.get("api_id", "")))
@@ -478,7 +497,7 @@ class App:
         for label, var, show in [
             ("API ID", self.v_api_id, None),
             ("API Hash", self.v_api_hash, "*"),
-            ("טלפון (user)", self.v_phone, None),
+            (b("טלפון (user)"), self.v_phone, None),
             ("Bot Token", self.v_bot_token, "*"),
             ("Chat ID / @user", self.v_chat, None),
         ]:
@@ -489,28 +508,28 @@ class App:
 
         ttk.Label(tg, text=(
             "API ID/Hash: https://my.telegram.org → API Development Tools\n"
-            'Chat ID: "me" לעצמך, או -100xxxx לערוץ, או @username לאדם'
+            + b('Chat ID: "me" לעצמך, או -100xxxx לערוץ, או @username לאדם')
         ), foreground="gray").pack(anchor="w", padx=6, pady=4)
 
         # Download dir
-        dl = ttk.LabelFrame(f, text="הורדה")
+        dl = ttk.LabelFrame(f, text=b("הורדה"))
         dl.pack(fill=tk.X, padx=8, pady=4)
         self.v_dldir = tk.StringVar(value=self.cfg.get(
             "download_dir", str(DOWNLOAD_DIR_DEFAULT)))
         row = ttk.Frame(dl); row.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row, text="תיקייה זמנית", width=14).pack(side=tk.LEFT)
+        ttk.Label(row, text=b("תיקייה זמנית"), width=14).pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.v_dldir).pack(
             side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(row, text="בחר...",
+        ttk.Button(row, text=b("בחר..."),
                    command=self._choose_dl_dir).pack(side=tk.LEFT, padx=4)
 
         # Buttons
         br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
-        ttk.Button(br, text="שמור הגדרות", command=self._save_cfg).pack(
+        ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
             side=tk.LEFT, padx=4)
-        ttk.Button(br, text="התחבר ל-Emby ↓", command=self._connect_emby).pack(
+        ttk.Button(br, text=b("התחבר ל-Emby ↓"), command=self._connect_emby).pack(
             side=tk.LEFT, padx=4)
-        self.v_status = tk.StringVar(value="לא מחובר")
+        self.v_status = tk.StringVar(value=b("לא מחובר"))
         ttk.Label(br, textvariable=self.v_status,
                   foreground="gray").pack(side=tk.LEFT, padx=12)
 
@@ -533,33 +552,33 @@ class App:
             "download_dir": self.v_dldir.get().strip(),
         })
         save_config(self.cfg)
-        messagebox.showinfo("נשמר", "ההגדרות נשמרו ל-" + str(CONFIG_PATH))
+        messagebox.showinfo(b("נשמר"), b("ההגדרות נשמרו ל-") + str(CONFIG_PATH))
 
     def _connect_emby(self) -> None:
-        self.v_status.set("מתחבר...")
+        self.v_status.set(b("מתחבר..."))
         self.root.update()
         try:
             self.emby = EmbyClient(self.v_base.get().strip())
             self.emby.login(self.v_user.get().strip(), self.v_pass.get())
-            self.v_status.set(f"מחובר ({self.emby.user_id[:8]}...)")
+            self.v_status.set(b(f"מחובר ({self.emby.user_id[:8]}...)"))
             self._load_libraries()
             self.notebook.select(1)
         except Exception as e:
-            self.v_status.set("נכשל")
-            messagebox.showerror("שגיאת חיבור", str(e))
+            self.v_status.set(b("נכשל"))
+            messagebox.showerror(b("שגיאת חיבור"), str(e))
 
     # ---- Browse tab ----
     def _build_browse_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text="עיון ובחירה")
+        self.notebook.add(f, text=b("עיון ובחירה"))
 
         top = ttk.Frame(f); top.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Label(top, text="חיפוש:").pack(side=tk.LEFT)
+        ttk.Label(top, text=b("חיפוש:")).pack(side=tk.LEFT)
         self.v_search = tk.StringVar()
         ent = ttk.Entry(top, textvariable=self.v_search)
         ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         ent.bind("<Return>", lambda e: self._do_search())
-        ttk.Button(top, text="חפש", command=self._do_search).pack(side=tk.LEFT)
+        ttk.Button(top, text=b("חפש"), command=self._do_search).pack(side=tk.LEFT)
         ttk.Button(top, text="✕", width=3,
                    command=lambda: (self.v_search.set(""), self._load_libraries())
                    ).pack(side=tk.LEFT, padx=2)
@@ -567,9 +586,9 @@ class App:
         # Tree
         cols = ("type", "size")
         self.tree = ttk.Treeview(f, columns=cols, selectmode="extended")
-        self.tree.heading("#0", text="שם")
-        self.tree.heading("type", text="סוג")
-        self.tree.heading("size", text="פרטים")
+        self.tree.heading("#0", text=b("שם"))
+        self.tree.heading("type", text=b("סוג"))
+        self.tree.heading("size", text=b("פרטים"))
         self.tree.column("#0", width=600)
         self.tree.column("type", width=80, anchor="center")
         self.tree.column("size", width=200)
@@ -577,9 +596,9 @@ class App:
         self.tree.bind("<<TreeviewOpen>>", self._on_tree_open)
 
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Button(bot, text="הוסף לתור ←", command=self._add_selected_to_queue
+        ttk.Button(bot, text=b("הוסף לתור ←"), command=self._add_selected_to_queue
                    ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(bot, text="הוסף סדרה שלמה",
+        ttk.Button(bot, text=b("הוסף סדרה שלמה"),
                    command=self._add_series_to_queue).pack(side=tk.LEFT, padx=4)
         self.v_browse_status = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self.v_browse_status,
@@ -594,16 +613,16 @@ class App:
         try:
             libs = self.emby.libraries()
         except Exception as e:
-            messagebox.showerror("שגיאה", f"שליפת ספריות: {e}")
+            messagebox.showerror(b("שגיאה"), b(f"שליפת ספריות: {e}"))
             return
         for lib in libs:
             ctype = lib.get("CollectionType") or "?"
-            node = self.tree.insert("", "end", text=lib.get("Name", "?"),
+            node = self.tree.insert("", "end", text=b(lib.get("Name", "?")),
                                     values=(ctype, ""), open=False)
             self.tree_items[node] = {"kind": "library", "item": lib}
-            self.tree.insert(node, "end", text="טוען...",
+            self.tree.insert(node, "end", text=b("טוען..."),
                              values=("", ""), tags=("placeholder",))
-        self.v_browse_status.set(f"{len(libs)} ספריות")
+        self.v_browse_status.set(b(f"{len(libs)} ספריות"))
 
     def _on_tree_open(self, _evt) -> None:
         node = self.tree.focus()
@@ -631,18 +650,18 @@ class App:
                         parent_id=item["Id"], item_types="Movie", limit=10000)
                     for m in children:
                         n = self.tree.insert(parent_node, "end",
-                                             text=m.get("Name", "?"),
-                                             values=("סרט", ""))
+                                             text=b(m.get("Name", "?")),
+                                             values=(b("סרט"), ""))
                         self.tree_items[n] = {"kind": "movie", "item": m}
                 else:
                     children, total = self.emby.items(
                         parent_id=item["Id"], item_types="Series", limit=10000)
                     for sr in children:
                         n = self.tree.insert(parent_node, "end",
-                                             text=sr.get("Name", "?"),
-                                             values=("סדרה", ""))
+                                             text=b(sr.get("Name", "?")),
+                                             values=(b("סדרה"), ""))
                         self.tree_items[n] = {"kind": "series", "item": sr}
-                        self.tree.insert(n, "end", text="טוען...",
+                        self.tree.insert(n, "end", text=b("טוען..."),
                                          values=("", ""), tags=("placeholder",))
                 self.v_browse_status.set(
                     f"{item.get('Name')}: {total}")
@@ -653,11 +672,11 @@ class App:
                 for sea in seasons:
                     sn = sea.get("IndexNumber", 0)
                     n = self.tree.insert(parent_node, "end",
-                                         text=f"עונה {sn} - {sea.get('Name','')}",
-                                         values=("עונה", ""))
+                                         text=b(f"עונה {sn} - {sea.get('Name','')}"),
+                                         values=(b("עונה"), ""))
                     self.tree_items[n] = {"kind": "season", "item": sea,
                                           "series": item}
-                    self.tree.insert(n, "end", text="טוען...",
+                    self.tree.insert(n, "end", text=b("טוען..."),
                                      values=("", ""), tags=("placeholder",))
             elif kind == "season":
                 eps_raw, _ = self.emby.items(
@@ -666,13 +685,13 @@ class App:
                 for ep in eps:
                     en = ep.get("IndexNumber", 0)
                     n = self.tree.insert(parent_node, "end",
-                                         text=f"פרק {en} - {ep.get('Name','')}",
-                                         values=("פרק", ""))
+                                         text=b(f"פרק {en} - {ep.get('Name','')}"),
+                                         values=(b("פרק"), ""))
                     self.tree_items[n] = {"kind": "episode", "item": ep,
                                           "season": item,
                                           "series": info.get("series")}
         except Exception as e:
-            messagebox.showerror("שגיאה", f"טעינת תוכן: {e}")
+            messagebox.showerror(b("שגיאה"), b(f"טעינת תוכן: {e}"))
 
     def _do_search(self) -> None:
         if not self.emby:
@@ -689,19 +708,19 @@ class App:
             movies, _ = self.emby.items(
                 item_types="Movie", search_term=term, limit=200)
             for sr in series:
-                n = self.tree.insert("", "end", text=sr.get("Name", "?"),
-                                     values=("סדרה", ""))
+                n = self.tree.insert("", "end", text=b(sr.get("Name", "?")),
+                                     values=(b("סדרה"), ""))
                 self.tree_items[n] = {"kind": "series", "item": sr}
-                self.tree.insert(n, "end", text="טוען...",
+                self.tree.insert(n, "end", text=b("טוען..."),
                                  values=("", ""), tags=("placeholder",))
             for m in movies:
-                n = self.tree.insert("", "end", text=m.get("Name", "?"),
-                                     values=("סרט", ""))
+                n = self.tree.insert("", "end", text=b(m.get("Name", "?")),
+                                     values=(b("סרט"), ""))
                 self.tree_items[n] = {"kind": "movie", "item": m}
             self.v_browse_status.set(
-                f"חיפוש '{term}': {len(series)} סדרות, {len(movies)} סרטים")
+                b(f"חיפוש '{term}': {len(series)} סדרות, {len(movies)} סרטים"))
         except Exception as e:
-            messagebox.showerror("שגיאה", str(e))
+            messagebox.showerror(b("שגיאה"), str(e))
 
     def _add_selected_to_queue(self) -> None:
         sel = self.tree.selection()
@@ -713,7 +732,7 @@ class App:
             kind = info["kind"]
             if kind in ("movie", "episode"):
                 added += self._add_item_to_queue(info)
-        self.v_browse_status.set(f"נוסף לתור: {added}")
+        self.v_browse_status.set(b(f"נוסף לתור: {added}"))
         if added:
             self._refresh_queue()
 
@@ -725,7 +744,7 @@ class App:
             if not info or info["kind"] != "series":
                 continue
             added += self._enumerate_series(info["item"])
-        self.v_browse_status.set(f"נוסף לתור: {added} פרקים")
+        self.v_browse_status.set(b(f"נוסף לתור: {added} פרקים"))
         if added:
             self._refresh_queue()
 
@@ -766,24 +785,24 @@ class App:
     # ---- Queue tab ----
     def _build_queue_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text="תור")
+        self.notebook.add(f, text=b("תור"))
 
         cols = ("status", "progress")
         self.qtree = ttk.Treeview(f, columns=cols, show="tree headings")
-        self.qtree.heading("#0", text="שם")
-        self.qtree.heading("status", text="סטטוס")
-        self.qtree.heading("progress", text="התקדמות")
+        self.qtree.heading("#0", text=b("שם"))
+        self.qtree.heading("status", text=b("סטטוס"))
+        self.qtree.heading("progress", text=b("התקדמות"))
         self.qtree.column("#0", width=600)
         self.qtree.column("status", width=240)
         self.qtree.column("progress", width=120)
         self.qtree.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
         bot = ttk.Frame(f); bot.pack(fill=tk.X, padx=6, pady=4)
-        ttk.Button(bot, text="▶ התחל", command=self._start_worker).pack(
+        ttk.Button(bot, text=b("▶ התחל"), command=self._start_worker).pack(
             side=tk.LEFT, padx=4)
-        ttk.Button(bot, text="✕ נקה תור", command=self._clear_queue).pack(
+        ttk.Button(bot, text=b("✕ נקה תור"), command=self._clear_queue).pack(
             side=tk.LEFT, padx=4)
-        ttk.Button(bot, text="⏹ עצור", command=self._stop_worker).pack(
+        ttk.Button(bot, text=b("⏹ עצור"), command=self._stop_worker).pack(
             side=tk.LEFT, padx=4)
         self.v_qstatus = tk.StringVar(value="")
         ttk.Label(bot, textvariable=self.v_qstatus,
@@ -795,36 +814,36 @@ class App:
         for i, j in enumerate(self.jobs):
             self.qtree.insert("", "end", iid=str(i), text=j.title,
                               values=(j.status, f"{j.progress:.0f}%"))
-        self.v_qstatus.set(f"{len(self.jobs)} פריטים בתור")
+        self.v_qstatus.set(b(f"{len(self.jobs)} פריטים בתור"))
 
     def _clear_queue(self) -> None:
         if self.worker and self.worker.is_alive():
-            messagebox.showwarning("פעיל", "אי אפשר לנקות בזמן עבודה")
+            messagebox.showwarning(b("פעיל"), b("אי אפשר לנקות בזמן עבודה"))
             return
         self.jobs.clear()
         self._refresh_queue()
 
     def _start_worker(self) -> None:
         if not self.emby:
-            messagebox.showwarning("Emby", "התחבר ל-Emby קודם"); return
+            messagebox.showwarning("Emby", b("התחבר ל-Emby קודם")); return
         if not self.jobs:
-            messagebox.showwarning("ריק", "אין פריטים בתור"); return
+            messagebox.showwarning(b("ריק"), b("אין פריטים בתור")); return
         if self.worker and self.worker.is_alive():
-            messagebox.showinfo("פעיל", "ה-worker כבר רץ"); return
+            messagebox.showinfo(b("פעיל"), b("ה-worker כבר רץ")); return
 
         mode = self.v_mode.get()
         api_id_s = self.v_api_id.get().strip()
         if not api_id_s or not self.v_api_hash.get().strip():
-            messagebox.showerror("Telegram", "חסרים API ID / API Hash"); return
+            messagebox.showerror("Telegram", b("חסרים API ID / API Hash")); return
         try:
             api_id = int(api_id_s)
         except ValueError:
-            messagebox.showerror("Telegram", "API ID חייב להיות מספר"); return
+            messagebox.showerror("Telegram", b("API ID חייב להיות מספר")); return
 
         if mode == "bot" and not self.v_bot_token.get().strip():
-            messagebox.showerror("Telegram", "חסר Bot Token"); return
+            messagebox.showerror("Telegram", b("חסר Bot Token")); return
         if mode == "user" and not self.v_phone.get().strip():
-            messagebox.showerror("Telegram", "חסר מספר טלפון"); return
+            messagebox.showerror("Telegram", b("חסר מספר טלפון")); return
 
         uploader = TelegramUploader(
             mode=mode, api_id=api_id,
@@ -844,12 +863,12 @@ class App:
         )
         self.worker.enqueue([(i, j) for i, j in enumerate(self.jobs)])
         self.worker.start()
-        self.v_qstatus.set(f"רץ ({len(self.jobs)} בתור)")
+        self.v_qstatus.set(b(f"רץ ({len(self.jobs)} בתור)"))
 
     def _stop_worker(self) -> None:
         if self.worker:
             self.worker.stop()
-            self.v_qstatus.set("מבקש עצירה...")
+            self.v_qstatus.set(b("מבקש עצירה..."))
 
     def _on_status(self, idx: int, text: str, pct: float) -> None:
         if idx >= len(self.jobs):
@@ -864,7 +883,7 @@ class App:
     # ---- Log tab ----
     def _build_log_tab(self) -> None:
         f = ttk.Frame(self.notebook)
-        self.notebook.add(f, text="לוג")
+        self.notebook.add(f, text=b("לוג"))
         self.txt_log = scrolledtext.ScrolledText(f, wrap=tk.WORD)
         self.txt_log.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
