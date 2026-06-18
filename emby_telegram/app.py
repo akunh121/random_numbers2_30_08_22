@@ -282,16 +282,22 @@ def stream_download(session, url: str, dest: Path,
             mode = "ab"
     with session.get(url, stream=True, timeout=60, allow_redirects=True,
                      headers=headers) as r:
-        if resume and already > 0 and r.status_code == 416:
-            # Range not satisfiable => server has same/less; restart fresh
-            mode = "wb"; already = 0
-            r.close()
-            with session.get(url, stream=True, timeout=60,
-                             allow_redirects=True) as r2:
-                r2.raise_for_status()
-                total = int(r2.headers.get("content-length") or 0)
-                _write_stream(r2, dest, "wb", 0, total, progress_cb)
-            return
+        if resume and already > 0:
+            # Detect "already complete" responses:
+            #  - 416 Range Not Satisfiable (clean case)
+            #  - 200 with tiny JSON/text body (alist-style proxy wrapping
+            #    an upstream 416 as a wrapped error)
+            ctype = (r.headers.get("content-type") or "").lower()
+            clen = int(r.headers.get("content-length") or 0)
+            looks_like_eof_error = (
+                r.status_code == 416
+                or (r.status_code == 200
+                    and clen and clen < 200_000
+                    and ("json" in ctype or "text/" in ctype))
+            )
+            if looks_like_eof_error:
+                progress_cb(already, already)
+                return
         if resume and already > 0 and r.status_code == 206:
             cr = r.headers.get("content-range", "")
             # bytes start-end/total
@@ -975,6 +981,16 @@ class App:
         ttk.Label(bot, textvariable=self.v_browse_status,
                   foreground="gray").pack(side=tk.RIGHT, padx=12)
 
+        # Quick add by Item ID
+        qa = ttk.Frame(f); qa.pack(fill=tk.X, padx=6, pady=(0, 6))
+        ttk.Label(qa, text=b("הוסף לפי Item ID:")).pack(side=tk.RIGHT)
+        self.v_quick_id = tk.StringVar()
+        qe = ttk.Entry(qa, textvariable=self.v_quick_id, width=20)
+        qe.pack(side=tk.RIGHT, padx=4)
+        qe.bind("<Return>", lambda e: self._add_by_id())
+        ttk.Button(qa, text=b("הוסף +"), command=self._add_by_id).pack(
+            side=tk.RIGHT, padx=4)
+
     def _load_libraries(self) -> None:
         if not self.emby:
             return
@@ -1261,6 +1277,11 @@ class App:
         self.qmenu = tk.Menu(self.qtree, tearoff=0)
         self.qmenu.add_command(label=b("הסר מהתור"), command=self._remove_selected)
         self.qmenu.add_command(label=b("נסה שוב"), command=self._retry_selected)
+        self.qmenu.add_separator()
+        self.qmenu.add_command(label=b("פתח תיקיית יעד"),
+                               command=self._open_dest_folder)
+        self.qmenu.add_command(label=b("העתק שם"),
+                               command=self._copy_selected_title)
         self.qtree.bind("<Button-3>", self._show_qmenu)
         self.qtree.bind("<Button-2>", self._show_qmenu)  # macOS
 
@@ -1367,6 +1388,84 @@ class App:
                 self.jobs[i].error = None
         self._refresh_queue()
 
+    def _add_by_id(self) -> None:
+        if not self.emby:
+            messagebox.showwarning("Emby", b("התחבר ל-Emby קודם")); return
+        item_id = self.v_quick_id.get().strip()
+        if not item_id:
+            return
+        # Fetch the item via Users/{uid}/Items/{id} for metadata
+        try:
+            r = self.emby.s.get(
+                f"{self.emby.base}/Users/{self.emby.user_id}/Items/{item_id}",
+                headers={"X-Emby-Token": self.emby.token}, timeout=30)
+            r.raise_for_status()
+            item = r.json()
+        except Exception as e:
+            messagebox.showerror(b("שגיאה"),
+                                 b(f"לא נמצא פריט {item_id}: {e}"))
+            return
+        typ = item.get("Type", "")
+        info: Dict[str, Any] = {"item": item, "library": {}}
+        if typ == "Movie":
+            info["kind"] = "movie"
+        elif typ == "Episode":
+            info["kind"] = "episode"
+            info["series"] = {"Name": item.get("SeriesName", "?")}
+            info["season"] = {
+                "IndexNumber": item.get("ParentIndexNumber", 0),
+                "Name": "",
+            }
+        else:
+            messagebox.showwarning(
+                b("לא נתמך"),
+                b(f"סוג פריט {typ!r} לא נתמך להוספה ישירה לתור.")); return
+        added = self._add_item_to_queue(info)
+        if added:
+            self.v_quick_id.set("")
+            self.v_browse_status.set(b(f"נוסף: {item.get('Name', '?')}"))
+            self._refresh_queue()
+            self._filter_completed(added)
+        else:
+            self.v_browse_status.set(b("הפריט כבר בתור"))
+
+    def _open_dest_folder(self) -> None:
+        sel = [int(s) for s in self.qtree.selection() if s.isdigit()]
+        if not sel:
+            return
+        job = self.jobs[sel[0]]
+        dl = Path(self.v_dldir.get().strip() or DOWNLOAD_DIR_DEFAULT)
+        target = dl
+        if job.rel_dir:
+            for p in job.rel_dir.split("/"):
+                if p:
+                    target = target / p
+        if not target.exists():
+            target = target.parent
+        if not target.exists():
+            target = dl
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform.startswith("linux"):
+                import subprocess as sp
+                sp.Popen(["xdg-open", str(target)])
+            elif sys.platform == "darwin":
+                import subprocess as sp
+                sp.Popen(["open", str(target)])
+            elif sys.platform.startswith("win"):
+                os.startfile(str(target))  # type: ignore[attr-defined]
+        except Exception as e:
+            messagebox.showerror(b("שגיאה"),
+                                 b(f"לא הצלחתי לפתוח: {e}"))
+
+    def _copy_selected_title(self) -> None:
+        sel = [int(s) for s in self.qtree.selection() if s.isdigit()]
+        if not sel:
+            return
+        title = self.jobs[sel[0]].title
+        self.root.clipboard_clear()
+        self.root.clipboard_append(title)
+
     def _update_overall(self) -> None:
         if not self.jobs:
             self.overall_progress["value"] = 0
@@ -1408,6 +1507,22 @@ class App:
             mode_text = {"bot":"בוט","user":"משתמש","local":"מקומי"}.get(mode, "?")
             self.v_sb_mode.set(b(f"מצב: {mode_text}"))
             self.v_sb_worker.set(b("Worker: רץ" if running else "Worker: עצור"))
+
+            # Live window title
+            if running and self.jobs:
+                done = sum(1 for j in self.jobs if "הושלם" in j.status
+                           or "םלשוה" in j.status)
+                cur_idx = self.worker.current_idx if self.worker else None
+                if cur_idx is not None and 0 <= cur_idx < len(self.jobs):
+                    cur = self.jobs[cur_idx]
+                    self.root.title(
+                        f"({done+1}/{len(self.jobs)}) {cur.title[:40]} "
+                        f"– {cur.progress:.0f}% | Emby Pipeline")
+                else:
+                    self.root.title(
+                        f"({done}/{len(self.jobs)}) | Emby Pipeline")
+            else:
+                self.root.title("Emby → Telegram Pipeline")
         except Exception:
             pass
         self.root.after(800, self._tick_stats)
