@@ -825,7 +825,7 @@ class App:
 
         self.root = tk.Tk()
         self.root.title("Emby → Telegram Pipeline")
-        geom = self.cfg.get("window_geometry") or "1180x780"
+        geom = self.cfg.get("window_geometry") or "1280x1080"
         self.root.geometry(geom)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -879,6 +879,14 @@ class App:
         # Restore saved queue from previous run (only pending items)
         self._restore_queue()
 
+        # Always run the restyle once so the custom config cards pick up
+        # the page background even in light mode (without the user
+        # toggling anything).
+        try:
+            self._restyle_config_tab()
+        except Exception:
+            pass
+
         # Apply persisted dark mode preference on startup
         if self.cfg.get("dark_mode"):
             try: self._apply_theme()
@@ -893,174 +901,393 @@ class App:
         self.tab_config = f
         self.notebook.add(f, text="⚙  " + b("הגדרות"))
 
-        # Emby
-        em = ttk.LabelFrame(f, text="Emby")
-        em.pack(fill=tk.X, padx=8, pady=4)
-        self.v_base = tk.StringVar(value=self.cfg.get("base_url",
-                                                      "https://play.embyil.tv"))
+        # Initialize all the StringVars / BooleanVars
+        self.v_base = tk.StringVar(value=self.cfg.get(
+            "base_url", "https://play.embyil.tv"))
         self.v_user = tk.StringVar(value=self.cfg.get("username", ""))
         self.v_pass = tk.StringVar(value=self.cfg.get("password", ""))
-        for label, var, show in [(b("כתובת השרת"), self.v_base, None),
-                                 (b("שם משתמש"), self.v_user, None),
-                                 (b("סיסמה"), self.v_pass, "*")]:
-            row = ttk.Frame(em); row.pack(fill=tk.X, padx=6, pady=2)
-            ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
-            ttk.Entry(row, textvariable=var, show=show).pack(
-                side=tk.RIGHT, fill=tk.X, expand=True)
-
-        # Telegram
-        tg = ttk.LabelFrame(f, text="Telegram")
-        tg.pack(fill=tk.X, padx=8, pady=4)
         self.v_mode = tk.StringVar(value=self.cfg.get("tg_mode", "bot"))
-        mr = ttk.Frame(tg); mr.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(mr, text=b("מצב"), width=14).pack(side=tk.RIGHT)
-        ttk.Radiobutton(mr, text=b("חשבון משתמש (עד 2GB)"), variable=self.v_mode,
-                        value="user").pack(side=tk.RIGHT, padx=4)
-        ttk.Radiobutton(mr, text=b("בוט (עד 50MB)"), variable=self.v_mode,
-                        value="bot").pack(side=tk.RIGHT, padx=4)
-        ttk.Radiobutton(mr, text=b("מקומי (בלי טלגרם)"), variable=self.v_mode,
-                        value="local").pack(side=tk.RIGHT, padx=4)
-
         self.v_api_id = tk.StringVar(value=str(self.cfg.get("api_id", "")))
         self.v_api_hash = tk.StringVar(value=self.cfg.get("api_hash", ""))
         self.v_phone = tk.StringVar(value=self.cfg.get("phone", ""))
         self.v_bot_token = tk.StringVar(value=self.cfg.get("bot_token", ""))
         self.v_chat = tk.StringVar(value=self.cfg.get("chat_id", "me"))
-
-        for label, var, show in [
-            ("API ID", self.v_api_id, None),
-            ("API Hash", self.v_api_hash, "*"),
-            (b("טלפון"), self.v_phone, None),
-            (b("טוקן בוט"), self.v_bot_token, "*"),
-            (b("Chat ID / @משתמש"), self.v_chat, None),
-        ]:
-            row = ttk.Frame(tg); row.pack(fill=tk.X, padx=6, pady=2)
-            ttk.Label(row, text=label, width=14).pack(side=tk.RIGHT)
-            ttk.Entry(row, textvariable=var, show=show).pack(
-                side=tk.RIGHT, fill=tk.X, expand=True)
-
-        ttk.Label(tg, text=(
-            "API ID/Hash: https://my.telegram.org → API Development Tools\n"
-            + b('Chat ID: "me" לעצמך, או -100xxxx לערוץ, או @username לאדם')
-        ), foreground="gray").pack(anchor="w", padx=6, pady=4)
-
-        # Download dir
-        dl = ttk.LabelFrame(f, text=b("הורדה"))
-        dl.pack(fill=tk.X, padx=8, pady=4)
         self.v_dldir = tk.StringVar(value=self.cfg.get(
             "download_dir", str(DOWNLOAD_DIR_DEFAULT)))
-        # RTL: label + button cluster on the right, entry fills the left
-        row = ttk.Frame(dl); row.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row, text=b("תיקיית הורדה"), width=14).pack(side=tk.RIGHT)
-        ttk.Button(row, text=b("בחר..."),
-                   command=self._choose_dl_dir).pack(side=tk.RIGHT, padx=4)
-        ttk.Entry(row, textvariable=self.v_dldir).pack(
-            side=tk.RIGHT, fill=tk.X, expand=True)
-
-        # Delete after upload + Organize folders + Subtitles
-        self.v_delete = tk.BooleanVar(
-            value=bool(self.cfg.get("delete_after_upload", True)))
-        self.v_organize = tk.BooleanVar(
-            value=bool(self.cfg.get("organize_folders", True)))
-        self.v_subs = tk.BooleanVar(
-            value=bool(self.cfg.get("download_subtitles", True)))
-
-        row2 = ttk.Frame(dl); row2.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Checkbutton(row2,
-                        text=b("מחק קובץ מהדיסק אחרי העלאה מוצלחת"),
-                        variable=self.v_delete).pack(side=tk.RIGHT, padx=4)
-        row3 = ttk.Frame(dl); row3.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Checkbutton(row3,
-                        text=b("ארגון בתיקיות (ספרייה / סדרה / עונה / פרק)"),
-                        variable=self.v_organize).pack(side=tk.RIGHT, padx=4)
-        row4 = ttk.Frame(dl); row4.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Checkbutton(row4,
-                        text=b("הורד כתוביות חיצוניות אם קיימות"),
-                        variable=self.v_subs).pack(side=tk.RIGHT, padx=4)
-
-        # Automation panel
-        au = ttk.LabelFrame(f, text=b("אוטומציה"))
-        au.pack(fill=tk.X, padx=8, pady=4)
-
-        self.v_size_limit = tk.StringVar(
-            value=str(self.cfg.get("size_limit_mb", 1900)))
-        self.v_auto_split = tk.BooleanVar(
-            value=bool(self.cfg.get("auto_split", True)))
-        self.v_retry_count = tk.StringVar(
-            value=str(self.cfg.get("retry_count", 2)))
-        self.v_retry_delay = tk.StringVar(
-            value=str(self.cfg.get("retry_delay", 10)))
-
-        row3 = ttk.Frame(au); row3.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row3, text=b("מגבלת גודל (MB)"), width=18).pack(side=tk.RIGHT)
-        ttk.Entry(row3, textvariable=self.v_size_limit, width=10).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Label(row3, text=b("(0 = ללא מגבלה. ברירות: 50 לבוט, 1900 למשתמש, 3900 ל-Premium)"),
-                  foreground="#666").pack(side=tk.RIGHT, padx=8)
-
-        row4 = ttk.Frame(au); row4.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Checkbutton(row4,
-                        text=b("פיצול אוטומטי לקבצים גדולים מהמגבלה (במקום דילוג)"),
-                        variable=self.v_auto_split).pack(side=tk.RIGHT, padx=4)
-
-        row5 = ttk.Frame(au); row5.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row5, text=b("ניסיונות חוזרים"), width=18).pack(side=tk.RIGHT)
-        ttk.Entry(row5, textvariable=self.v_retry_count, width=6).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Label(row5, text=b("השהיה בין ניסיונות (שניות)")).pack(
-            side=tk.RIGHT, padx=8)
-        ttk.Entry(row5, textvariable=self.v_retry_delay, width=6).pack(
-            side=tk.RIGHT, padx=4)
-
-        # Bandwidth limit
-        self.v_rate_kbps = tk.StringVar(
-            value=str(self.cfg.get("rate_limit_kbps", 0)))
-        row6 = ttk.Frame(au); row6.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row6, text=b("הגבלת מהירות (KB/s)"), width=18).pack(side=tk.RIGHT)
-        ttk.Entry(row6, textvariable=self.v_rate_kbps, width=10).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Label(row6, text=b("(0 = ללא הגבלה)"),
-                  foreground="#666").pack(side=tk.RIGHT, padx=8)
-
-        # Concurrent workers
-        self.v_concurrent = tk.StringVar(
-            value=str(self.cfg.get("concurrent_workers", 1)))
-        row7 = ttk.Frame(au); row7.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row7, text=b("הורדות במקביל"), width=18).pack(side=tk.RIGHT)
-        ttk.Spinbox(row7, textvariable=self.v_concurrent, from_=1, to=4,
-                    width=5).pack(side=tk.RIGHT, padx=4)
-        ttk.Label(row7, text=b("(1-4. ההעלאות תמיד יורות אחת בכל פעם)"),
-                  foreground="#666").pack(side=tk.RIGHT, padx=8)
-
-        # Quality picker
+        self.v_delete = tk.BooleanVar(value=bool(
+            self.cfg.get("delete_after_upload", True)))
+        self.v_organize = tk.BooleanVar(value=bool(
+            self.cfg.get("organize_folders", True)))
+        self.v_subs = tk.BooleanVar(value=bool(
+            self.cfg.get("download_subtitles", True)))
+        self.v_size_limit = tk.StringVar(value=str(
+            self.cfg.get("size_limit_mb", 1900)))
+        self.v_auto_split = tk.BooleanVar(value=bool(
+            self.cfg.get("auto_split", True)))
+        self.v_retry_count = tk.StringVar(value=str(
+            self.cfg.get("retry_count", 2)))
+        self.v_retry_delay = tk.StringVar(value=str(
+            self.cfg.get("retry_delay", 10)))
+        self.v_rate_kbps = tk.StringVar(value=str(
+            self.cfg.get("rate_limit_kbps", 0)))
+        self.v_concurrent = tk.StringVar(value=str(
+            self.cfg.get("concurrent_workers", 1)))
         self.v_quality = tk.StringVar(value=self.cfg.get("quality", "first"))
-        row8 = ttk.Frame(au); row8.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row8, text=b("איכות"), width=18).pack(side=tk.RIGHT)
-        for label, val in [(b("ברירת מחדל"), "first"),
-                            (b("הגבוהה ביותר"), "best"),
-                            (b("הנמוכה ביותר"), "smallest")]:
-            ttk.Radiobutton(row8, text=label, variable=self.v_quality,
-                            value=val).pack(side=tk.RIGHT, padx=4)
-
-        # Schedule start
         self.v_schedule = tk.StringVar(value=self.cfg.get("schedule_at", ""))
-        row9 = ttk.Frame(au); row9.pack(fill=tk.X, padx=6, pady=2)
-        ttk.Label(row9, text=b("התחל בשעה"), width=18).pack(side=tk.RIGHT)
-        ttk.Entry(row9, textvariable=self.v_schedule, width=8).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Label(row9, text=b("(HH:MM, ריק = מיידי. דוגמה: 23:30)"),
-                  foreground="#666").pack(side=tk.RIGHT, padx=8)
-
-        # Buttons
-        br = ttk.Frame(f); br.pack(fill=tk.X, padx=8, pady=10)
-        ttk.Button(br, text=b("שמור הגדרות"), command=self._save_cfg).pack(
-            side=tk.RIGHT, padx=4)
-        ttk.Button(br, text=b("התחבר ל-Emby ↓"), command=self._connect_emby,
-                   style="Accent.TButton").pack(
-            side=tk.RIGHT, padx=4)
         self.v_status = tk.StringVar(value=b("לא מחובר"))
-        ttk.Label(br, textvariable=self.v_status,
-                  foreground="#666").pack(side=tk.RIGHT, padx=12)
+
+        # Build a scrollable container so we don't run out of vertical space
+        self._config_cards: List[Dict[str, Any]] = []
+        outer = tk.Frame(f, bd=0, highlightthickness=0)
+        outer.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(outer, bd=0, highlightthickness=0)
+        vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vbar.pack(side=tk.LEFT, fill=tk.Y)
+        body = tk.Frame(canvas, bd=0, highlightthickness=0)
+        body_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        def _on_resize(e):
+            canvas.itemconfig(body_id, width=e.width)
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.bind("<Configure>", _on_resize)
+        body.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # Mouse-wheel scrolling on the canvas
+        def _on_wheel(e):
+            canvas.yview_scroll(-int(e.delta / 120) if e.delta else
+                                (-1 if e.num == 4 else 1), "units")
+        canvas.bind_all("<MouseWheel>", _on_wheel)
+        canvas.bind_all("<Button-4>", _on_wheel)
+        canvas.bind_all("<Button-5>", _on_wheel)
+        self._cfg_canvas = canvas
+        self._cfg_body = body
+
+        # Card 1: Emby
+        card = self._card(body, "🎬", "Emby", b("פרטי החיבור לשרת המדיה"))
+        self._field(card, b("כתובת השרת"), self.v_base)
+        self._field(card, b("שם משתמש"), self.v_user)
+        self._field(card, b("סיסמה"), self.v_pass, show="•")
+
+        # Card 2: Telegram
+        card = self._card(body, "✈", "Telegram", b("יעד ההעלאה"))
+        self._radio_row(card, b("מצב"), self.v_mode, [
+            (b("חשבון משתמש"), "user", b("עד 2GB / 4GB Premium")),
+            (b("בוט"), "bot", b("עד 50MB")),
+            (b("מקומי"), "local", b("בלי טלגרם")),
+        ])
+        self._field(card, "API ID", self.v_api_id)
+        self._field(card, "API Hash", self.v_api_hash, show="•")
+        self._field(card, b("טלפון"), self.v_phone,
+                    hint=b("עבור מצב משתמש"))
+        self._field(card, b("טוקן בוט"), self.v_bot_token, show="•",
+                    hint=b("עבור מצב בוט"))
+        self._field(card, b("Chat / @משתמש"), self.v_chat,
+                    hint=b('"me" ל-Saved Messages, או -100xxx לערוץ'))
+        self._hint(card, b("השג API ID + Hash מ-https://my.telegram.org"))
+
+        # Card 3: Download
+        card = self._card(body, "💾", b("הורדה"),
+                          b("ארגון, מחיקה וכתוביות"))
+        self._dir_field(card, b("תיקיית הורדה"), self.v_dldir,
+                        on_browse=self._choose_dl_dir)
+        self._check_row(card, b("מחק קובץ מהדיסק אחרי העלאה מוצלחת"),
+                        self.v_delete)
+        self._check_row(card, b("ארגון בתיקיות (ספרייה / סדרה / עונה / פרק)"),
+                        self.v_organize)
+        self._check_row(card, b("הורד כתוביות חיצוניות אם קיימות"),
+                        self.v_subs)
+
+        # Card 4: Automation
+        card = self._card(body, "⚡", b("אוטומציה"),
+                          b("מגבלות, ניסיונות חוזרים, ואיכות"))
+        self._field(card, b("מגבלת גודל (MB)"), self.v_size_limit,
+                    hint=b("0 = ללא מגבלה (50 לבוט, 1900 למשתמש)"), width=12)
+        self._check_row(card, b("פיצול אוטומטי לקבצים גדולים מהמגבלה"),
+                        self.v_auto_split)
+        self._dual_field(card, b("ניסיונות חוזרים"), self.v_retry_count, 6,
+                         b("השהיה (שניות)"), self.v_retry_delay, 6)
+        self._field(card, b("הגבלת מהירות (KB/s)"), self.v_rate_kbps,
+                    hint=b("0 = ללא הגבלה"), width=12)
+        self._field(card, b("הורדות במקביל"), self.v_concurrent,
+                    hint=b("1-4 (העלאות תמיד אחת בכל פעם)"), width=6,
+                    spinbox=(1, 4))
+        self._radio_row(card, b("איכות"), self.v_quality, [
+            (b("ברירת מחדל"), "first", ""),
+            (b("הגבוהה ביותר"), "best", ""),
+            (b("הנמוכה ביותר"), "smallest", ""),
+        ])
+        self._field(card, b("התחל בשעה"), self.v_schedule,
+                    hint=b("HH:MM, ריק = מיידי"), width=8)
+
+        # Action row at the bottom
+        btn_row = tk.Frame(body, bd=0)
+        btn_row.pack(fill=tk.X, padx=24, pady=(8, 24))
+        self._cards_btn_row = btn_row
+
+        save_btn = tk.Button(btn_row, text=b("שמור הגדרות"),
+                              command=self._save_cfg, relief="flat",
+                              padx=18, pady=8, cursor="hand2",
+                              font=("TkDefaultFont", 10))
+        save_btn.pack(side=tk.RIGHT, padx=4)
+        self._save_btn = save_btn
+
+        conn_btn = tk.Button(btn_row, text=b("התחבר ל-Emby"),
+                              command=self._connect_emby, relief="flat",
+                              padx=18, pady=8, cursor="hand2",
+                              font=("TkDefaultFont", 10, "bold"))
+        conn_btn.pack(side=tk.RIGHT, padx=4)
+        self._conn_btn = conn_btn
+
+        status_lbl = tk.Label(btn_row, textvariable=self.v_status, bd=0)
+        status_lbl.pack(side=tk.RIGHT, padx=12)
+        self._status_lbl = status_lbl
+
+    # ---- Modern card / field helpers ----
+    def _card_colors(self) -> Dict[str, str]:
+        dark = bool(self.cfg.get("dark_mode", False))
+        if dark:
+            return {
+                "page": "#15171a", "card": "#1f232a", "border": "#2d333b",
+                "fg": "#e6e6e6", "fg_dim": "#8b95a1", "fg_inv": "#0d0f12",
+                "accent": "#4a9eff", "accent_dark": "#3a7fcc",
+                "save_bg": "#2d333b", "save_fg": "#e6e6e6",
+                "input_bg": "#0d1117", "input_border": "#30363d",
+                "section": "#9aa8b5",
+            }
+        return {
+            "page": "#f5f6f8", "card": "#ffffff", "border": "#e4e6eb",
+            "fg": "#1a1d22", "fg_dim": "#6b7280", "fg_inv": "#ffffff",
+            "accent": "#1976d2", "accent_dark": "#0d47a1",
+            "save_bg": "#e4e6eb", "save_fg": "#1a1d22",
+            "input_bg": "#ffffff", "input_border": "#cbd0d5",
+            "section": "#374151",
+        }
+
+    def _card(self, parent: tk.Widget, icon: str, title: str,
+              subtitle: str = "") -> tk.Frame:
+        c = self._card_colors()
+        # Outer card with subtle border (frame with single bg, then inner padding)
+        wrap = tk.Frame(parent, bg=c["border"], bd=0)
+        wrap.pack(fill=tk.X, padx=24, pady=10)
+        card = tk.Frame(wrap, bg=c["card"], bd=0,
+                        padx=18, pady=16)
+        card.pack(fill=tk.BOTH, padx=1, pady=1)
+
+        # Header row
+        hdr = tk.Frame(card, bg=c["card"], bd=0)
+        hdr.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(hdr, text=icon, bg=c["card"], fg=c["accent"],
+                 font=("TkDefaultFont", 16)).pack(side=tk.RIGHT, padx=(0, 8))
+        ttl = tk.Frame(hdr, bg=c["card"], bd=0)
+        ttl.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        tk.Label(ttl, text=title, bg=c["card"], fg=c["fg"], anchor="e",
+                 font=("TkDefaultFont", 12, "bold")).pack(side=tk.TOP, fill=tk.X)
+        if subtitle:
+            tk.Label(ttl, text=subtitle, bg=c["card"], fg=c["fg_dim"],
+                     anchor="e", font=("TkDefaultFont", 9)).pack(
+                side=tk.TOP, fill=tk.X)
+
+        # Divider
+        tk.Frame(card, bg=c["border"], height=1).pack(fill=tk.X, pady=(0, 8))
+
+        # Body container (the caller will pack children inside this)
+        body = tk.Frame(card, bg=c["card"], bd=0)
+        body.pack(fill=tk.X)
+        self._config_cards.append({"wrap": wrap, "card": card, "body": body,
+                                    "hdr": hdr})
+        # Stash the body so child helpers can default-add into it
+        wrap._body = body  # type: ignore[attr-defined]
+        return wrap
+
+    def _row(self, card_wrap: tk.Frame) -> tk.Frame:
+        c = self._card_colors()
+        body = getattr(card_wrap, "_body")
+        row = tk.Frame(body, bg=c["card"], bd=0)
+        row.pack(fill=tk.X, pady=4)
+        return row
+
+    def _field(self, card_wrap: tk.Frame, label: str, var: tk.StringVar,
+               show: Optional[str] = None, hint: str = "",
+               width: Optional[int] = None,
+               spinbox: Optional[Tuple[int, int]] = None) -> None:
+        c = self._card_colors()
+        row = self._row(card_wrap)
+        tk.Label(row, text=label, bg=c["card"], fg=c["fg"],
+                 width=18, anchor="e",
+                 font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(8, 0))
+        if spinbox:
+            ent = tk.Spinbox(row, textvariable=var, from_=spinbox[0],
+                             to=spinbox[1], width=width or 6,
+                             bg=c["input_bg"], fg=c["fg"], bd=0,
+                             relief="flat", highlightthickness=1,
+                             highlightbackground=c["input_border"],
+                             highlightcolor=c["accent"])
+            ent.pack(side=tk.RIGHT, padx=4, ipady=4)
+        else:
+            ent = tk.Entry(row, textvariable=var, show=show or "",
+                           bg=c["input_bg"], fg=c["fg"],
+                           insertbackground=c["fg"], bd=0,
+                           relief="flat", highlightthickness=1,
+                           highlightbackground=c["input_border"],
+                           highlightcolor=c["accent"])
+            if width:
+                ent.config(width=width)
+                ent.pack(side=tk.RIGHT, padx=4, ipady=4)
+            else:
+                ent.pack(side=tk.RIGHT, padx=4, fill=tk.X, expand=True, ipady=4)
+        if hint:
+            tk.Label(row, text=hint, bg=c["card"], fg=c["fg_dim"],
+                     font=("TkDefaultFont", 9)).pack(side=tk.RIGHT, padx=8)
+
+    def _dual_field(self, card_wrap: tk.Frame,
+                    label1: str, var1: tk.StringVar, w1: int,
+                    label2: str, var2: tk.StringVar, w2: int) -> None:
+        c = self._card_colors()
+        row = self._row(card_wrap)
+        tk.Label(row, text=label1, bg=c["card"], fg=c["fg"],
+                 width=18, anchor="e",
+                 font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Entry(row, textvariable=var1, width=w1,
+                 bg=c["input_bg"], fg=c["fg"],
+                 insertbackground=c["fg"], bd=0, relief="flat",
+                 highlightthickness=1, highlightbackground=c["input_border"],
+                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4, ipady=4)
+        tk.Label(row, text=label2, bg=c["card"], fg=c["fg_dim"],
+                 font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(16, 4))
+        tk.Entry(row, textvariable=var2, width=w2,
+                 bg=c["input_bg"], fg=c["fg"],
+                 insertbackground=c["fg"], bd=0, relief="flat",
+                 highlightthickness=1, highlightbackground=c["input_border"],
+                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4, ipady=4)
+
+    def _radio_row(self, card_wrap: tk.Frame, label: str, var: tk.StringVar,
+                   options: List[Tuple[str, str, str]]) -> None:
+        c = self._card_colors()
+        row = self._row(card_wrap)
+        tk.Label(row, text=label, bg=c["card"], fg=c["fg"],
+                 width=18, anchor="e",
+                 font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(8, 0))
+        opts_frame = tk.Frame(row, bg=c["card"], bd=0)
+        opts_frame.pack(side=tk.RIGHT, padx=4)
+        for txt, val, hint in options:
+            cell = tk.Frame(opts_frame, bg=c["card"], bd=0)
+            cell.pack(side=tk.RIGHT, padx=8)
+            tk.Radiobutton(cell, text=txt, value=val, variable=var,
+                           bg=c["card"], fg=c["fg"],
+                           activebackground=c["card"],
+                           activeforeground=c["accent"],
+                           selectcolor=c["card"], bd=0, relief="flat",
+                           font=("TkDefaultFont", 10),
+                           anchor="e").pack(side=tk.TOP, anchor="e")
+            if hint:
+                tk.Label(cell, text=hint, bg=c["card"], fg=c["fg_dim"],
+                         font=("TkDefaultFont", 8),
+                         anchor="e").pack(side=tk.TOP, anchor="e",
+                                          padx=(18, 0))
+
+    def _check_row(self, card_wrap: tk.Frame, label: str,
+                   var: tk.BooleanVar) -> None:
+        c = self._card_colors()
+        row = self._row(card_wrap)
+        tk.Checkbutton(row, text=label, variable=var,
+                       bg=c["card"], fg=c["fg"],
+                       activebackground=c["card"],
+                       activeforeground=c["accent"],
+                       selectcolor=c["input_bg"], bd=0, relief="flat",
+                       font=("TkDefaultFont", 10),
+                       anchor="e").pack(side=tk.RIGHT, padx=4)
+
+    def _dir_field(self, card_wrap: tk.Frame, label: str,
+                   var: tk.StringVar, on_browse) -> None:
+        c = self._card_colors()
+        row = self._row(card_wrap)
+        tk.Label(row, text=label, bg=c["card"], fg=c["fg"],
+                 width=18, anchor="e",
+                 font=("TkDefaultFont", 10)).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(row, text=b("בחר…"), command=on_browse,
+                  bg=c["save_bg"], fg=c["save_fg"], bd=0, relief="flat",
+                  cursor="hand2", padx=12,
+                  font=("TkDefaultFont", 9)).pack(side=tk.RIGHT, padx=4,
+                                                   ipady=4)
+        tk.Entry(row, textvariable=var,
+                 bg=c["input_bg"], fg=c["fg"], insertbackground=c["fg"],
+                 bd=0, relief="flat", highlightthickness=1,
+                 highlightbackground=c["input_border"],
+                 highlightcolor=c["accent"]).pack(side=tk.RIGHT, padx=4,
+                                                    fill=tk.X, expand=True,
+                                                    ipady=4)
+
+    def _hint(self, card_wrap: tk.Frame, text: str) -> None:
+        c = self._card_colors()
+        body = getattr(card_wrap, "_body")
+        tk.Label(body, text=text, bg=c["card"], fg=c["fg_dim"],
+                 anchor="e", font=("TkDefaultFont", 9)).pack(
+            fill=tk.X, pady=(4, 0))
+
+    def _restyle_config_tab(self) -> None:
+        """Re-apply colors to the custom-styled config widgets after a
+        theme switch. tk.Frame/Label/Button/Entry don't pick up ttk
+        style updates, so we recolor them manually."""
+        if not hasattr(self, "_config_cards"):
+            return
+        c = self._card_colors()
+        # Page background
+        try:
+            self._cfg_canvas.configure(bg=c["page"])
+            self._cfg_body.configure(bg=c["page"])
+        except Exception:
+            pass
+
+        def _recolor(w):
+            try:
+                kls = w.winfo_class()
+                if kls in ("Frame",):
+                    # Cards' wrapper frames use border color; cards' inner use card color
+                    bg = w.cget("bg")
+                    if bg in ("white", "#ffffff", "#1f232a"):
+                        w.configure(bg=c["card"])
+                    elif bg in ("#e4e6eb", "#2d333b"):
+                        w.configure(bg=c["border"])
+                    else:
+                        w.configure(bg=c["page"])
+                elif kls == "Label":
+                    cur_bg = w.cget("bg")
+                    if cur_bg in ("white", "#ffffff", "#1f232a"):
+                        w.configure(bg=c["card"], fg=c["fg"])
+                    else:
+                        # leave subtitle / hint colors as set
+                        pass
+                elif kls in ("Entry", "Spinbox"):
+                    w.configure(bg=c["input_bg"], fg=c["fg"],
+                                insertbackground=c["fg"],
+                                highlightbackground=c["input_border"],
+                                highlightcolor=c["accent"])
+                elif kls == "Checkbutton" or kls == "Radiobutton":
+                    w.configure(bg=c["card"], fg=c["fg"],
+                                activebackground=c["card"],
+                                activeforeground=c["accent"],
+                                selectcolor=c["input_bg"]
+                                if kls == "Checkbutton" else c["card"])
+                elif kls == "Button":
+                    pass  # handled below
+            except tk.TclError:
+                pass
+            for ch in w.winfo_children():
+                _recolor(ch)
+        for cd in self._config_cards:
+            _recolor(cd["wrap"])
+        # Action buttons
+        if hasattr(self, "_save_btn"):
+            self._save_btn.configure(bg=c["save_bg"], fg=c["save_fg"],
+                                      activebackground=c["border"])
+        if hasattr(self, "_conn_btn"):
+            self._conn_btn.configure(bg=c["accent"], fg=c["fg_inv"],
+                                      activebackground=c["accent_dark"])
+        if hasattr(self, "_status_lbl"):
+            self._status_lbl.configure(bg=c["page"], fg=c["fg_dim"])
+        if hasattr(self, "_cards_btn_row"):
+            self._cards_btn_row.configure(bg=c["page"])
 
     def _choose_dl_dir(self) -> None:
         d = filedialog.askdirectory(initialdir=self.v_dldir.get() or str(Path.home()))
@@ -1857,6 +2084,11 @@ class App:
     def _apply_theme(self) -> None:
         dark = bool(self.v_dark.get())
         self.cfg["dark_mode"] = dark
+        # Re-style the custom-built config cards
+        try:
+            self._restyle_config_tab()
+        except Exception:
+            pass
         style = ttk.Style()
         if dark:
             bg, fg, sel = "#1e1e1e", "#e0e0e0", "#2a3f5f"
